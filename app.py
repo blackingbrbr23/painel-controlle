@@ -1,58 +1,65 @@
-from flask import Flask, request, jsonify, redirect, url_for, render_template
+from flask import Flask, request, jsonify, redirect, render_template
 import json
 import os
 
 app = Flask(__name__)
 
-CLIENTS_FILE = "clients.json"
+CLIENTES_FILE = "clients.json"
 
-# Garantir que o arquivo exista
-if not os.path.exists(CLIENTS_FILE):
-    with open(CLIENTS_FILE, "w") as f:
-        json.dump({}, f)
+def carregar_clientes():
+    if not os.path.exists(CLIENTES_FILE):
+        return {}
+    with open(CLIENTES_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
 
-def load_clients():
-    with open(CLIENTS_FILE, "r") as f:
-        return json.load(f)
-
-def save_clients(clients):
-    with open(CLIENTS_FILE, "w") as f:
-        json.dump(clients, f, indent=2)
+def salvar_clientes(clientes):
+    with open(CLIENTES_FILE, "w") as f:
+        json.dump(clientes, f, indent=2)
 
 @app.route("/")
 def index():
-    clients = load_clients()
-    return render_template("index.html", clients=clients)
+    clientes = carregar_clientes()
+    return render_template("index.html", clientes=clientes)
 
-@app.route("/command", methods=["GET"])
+@app.route("/set/<id>/<status>", methods=["POST"])
+def set_status(id, status):
+    clientes = carregar_clientes()
+    if id in clientes:
+        clientes[id]["ativo"] = status.upper() == "ACTIVE"
+        salvar_clientes(clientes)
+    return redirect("/")
+
+@app.route("/setname/<id>", methods=["POST"])
+def set_name(id):
+    nome = request.form.get("nome")
+    clientes = carregar_clientes()
+    if id in clientes:
+        clientes[id]["nome"] = nome
+        salvar_clientes(clientes)
+    return redirect("/")
+
+@app.route("/command")
 def command():
-    client_id = request.args.get("id")
-    ip = request.args.get("public_ip", "")
+    id = request.args.get("id")
+    ip = request.args.get("public_ip")
+    if not id or not ip:
+        return jsonify({"error": "Missing id or public_ip"}), 400
 
-    clients = load_clients()
+    clientes = carregar_clientes()
 
-    if client_id not in clients:
-        clients[client_id] = {"nome": "Sem nome", "ip": ip, "ativo": False}
-        save_clients(clients)
+    # Se o cliente ainda não existe, adiciona com status bloqueado por padrão
+    if id not in clientes:
+        clientes[id] = {"nome": "Sem nome", "ip": ip, "ativo": False}
+        salvar_clientes(clientes)
 
-    return jsonify(clients[client_id])
+    if not clientes[id].get("ativo"):
+        return jsonify({"status": "BLOCKED"})
 
-@app.route("/set/<client_id>/<status>", methods=["POST"])
-def set_status(client_id, status):
-    clients = load_clients()
-    if client_id in clients:
-        clients[client_id]["ativo"] = True if status.upper() == "ACTIVE" else False
-        save_clients(clients)
-    return redirect(url_for("index"))
-
-@app.route("/rename/<client_id>", methods=["POST"])
-def rename_client(client_id):
-    new_name = request.form.get("nome", "Sem nome")
-    clients = load_clients()
-    if client_id in clients:
-        clients[client_id]["nome"] = new_name
-        save_clients(clients)
-    return redirect(url_for("index"))
+    return jsonify({"status": "ACTIVE"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
