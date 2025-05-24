@@ -1,115 +1,54 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Painel de Controle</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background: #f4f4f4;
-        }
-        h1 {
-            color: #333;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            background: white;
-            box-shadow: 0 0 5px rgba(0,0,0,0.1);
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background: #0078D7;
-            color: white;
-        }
-        tr:hover {
-            background: #f1f1f1;
-        }
-        button, input[type="submit"] {
-            cursor: pointer;
-            background-color: #0078D7;
-            color: white;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 3px;
-            transition: background-color 0.3s ease;
-        }
-        button:hover, input[type="submit"]:hover {
-            background-color: #005fa3;
-        }
-        input.rename-input {
-            padding: 6px;
-            border: 1px solid #ccc;
-            border-radius: 3px;
-            width: 180px;
-        }
-        form.inline-form {
-            display: inline-block;
-            margin: 0;
-        }
-        .blocked {
-            color: red;
-            font-weight: bold;
-        }
-        .active {
-            color: green;
-            font-weight: bold;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Painel de Controle</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+    th, td { padding: 12px; border: 1px solid #ccc; text-align: center; }
+    th { background-color: #eee; }
+    form { display: inline; }
+    input[type="text"] { width: 150px; padding: 4px; }
+    button { padding: 6px 12px; margin: 2px; }
+  </style>
 </head>
 <body>
-    <h1>Painel de Controle - Clientes</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>ID Cliente</th>
-                <th>Nome</th>
-                <th>IP Público</th>
-                <th>Status</th>
-                <th>Ações</th>
-                <th>Renomear</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for client_id, info in clients.items() %}
-            <tr>
-                <td>{{ client_id }}</td>
-                <td>{{ info.name }}</td>
-                <td>{{ info.ip }}</td>
-                <td>
-                    {% if info.command == "ACTIVE" %}
-                        <span class="active">Ativo</span>
-                    {% else %}
-                        <span class="blocked">Bloqueado</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if info.command == "ACTIVE" %}
-                        <form class="inline-form" action="/set/{{ client_id }}/BLOCK" method="post">
-                            <input type="submit" value="Bloquear" />
-                        </form>
-                    {% else %}
-                        <form class="inline-form" action="/set/{{ client_id }}/ACTIVE" method="post">
-                            <input type="submit" value="Ativar" />
-                        </form>
-                    {% endif %}
-                </td>
-                <td>
-                    <form class="inline-form" action="/rename/{{ client_id }}" method="post">
-                        <input class="rename-input" type="text" name="new_name" placeholder="Novo nome" required />
-                        <input type="submit" value="Salvar" />
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+  <h1>Painel de Controle</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Nome</th>
+        <th>IP</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for id, data in clients.items() %}
+      <tr>
+        <td>{{ id }}</td>
+        <td>
+          <form action="/rename/{{ id }}" method="post">
+            <input type="text" name="nome" value="{{ data.nome }}">
+            <button type="submit">Salvar</button>
+          </form>
+        </td>
+        <td>{{ data.ip }}</td>
+        <td>{{ "Ativo" if data.ativo else "Bloqueado" }}</td>
+        <td>
+          <form action="/set/{{ id }}/ACTIVE" method="post">
+            <button type="submit">Ativar</button>
+          </form>
+          <form action="/set/{{ id }}/BLOCKED" method="post">
+            <button type="submit">Bloquear</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </body>
 </html>
+
