@@ -10,7 +10,6 @@
     .table th, .table td { vertical-align: middle; }
     .form-inline { display: flex; gap: 10px; }
     .btn-sm { padding: 0.25rem 0.5rem; }
-    .badge-novo { background-color: #ffc107; color: #000; }
   </style>
 </head>
 <body>
@@ -27,12 +26,9 @@
         </tr>
       </thead>
       <tbody>
-        {% for id, data in clients|dictsort(by='value.ordem', reverse=true) %}
+        {% for id, data in clients.items() %}
         <tr>
-          <td class="text-break">
-            {{ id }}
-            {% if data.novo %}<span class="badge badge-novo">NOVO</span>{% endif %}
-          </td>
+          <td class="text-break">{{ id }}</td>
           <td>
             <form action="/rename/{{ id }}" method="post" class="form-inline">
               <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
@@ -53,9 +49,6 @@
             </form>
             <form action="/set/{{ id }}/BLOCKED" method="post" style="display:inline">
               <button type="submit" class="btn btn-danger btn-sm">Bloquear</button>
-            </form>
-            <form action="/delete/{{ id }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
-              <button type="submit" class="btn btn-outline-danger btn-sm">Excluir</button>
             </form>
           </td>
         </tr>
