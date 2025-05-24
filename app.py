@@ -57,5 +57,14 @@ def rename(client_id):
         save_clients(clients)
     return redirect("/")
 
+# ✅ Rota de exclusão adicionada aqui
+@app.route("/delete/<client_id>", methods=["POST"])
+def delete(client_id):
+    clients = load_clients()
+    if client_id in clients:
+        del clients[client_id]
+        save_clients(clients)
+    return redirect("/")
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
