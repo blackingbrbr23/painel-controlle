@@ -31,8 +31,11 @@ def command():
             "ip": ip,
             "ativo": False
         }
-        save_clients(clients)
+    else:
+        # Atualiza apenas o IP (não sobrescreve nome nem ativo)
+        clients[client_id]["ip"] = ip
 
+    save_clients(clients)
     return jsonify({"ativo": clients[client_id]["ativo"]})
 
 @app.route("/")
