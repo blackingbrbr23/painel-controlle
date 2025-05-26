@@ -18,7 +18,7 @@
     <table class="table table-bordered table-hover">
       <thead class="table-light">
         <tr>
-          <th>ID</th>
+          <th>MAC</th>
           <th>Nome</th>
           <th>IP</th>
           <th>Status</th>
@@ -26,11 +26,11 @@
         </tr>
       </thead>
       <tbody>
-        {% for id, data in clients.items() %}
+        {% for mac, data in clients.items() %}
         <tr>
-          <td class="text-break">{{ id }}</td>
+          <td class="text-break">{{ mac }}</td>
           <td>
-            <form action="/rename/{{ id }}" method="post" class="form-inline">
+            <form action="/rename/{{ mac }}" method="post" class="form-inline">
               <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
@@ -44,13 +44,13 @@
             {% endif %}
           </td>
           <td>
-            <form action="/set/{{ id }}/ACTIVE" method="post" style="display:inline">
+            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
               <button type="submit" class="btn btn-success btn-sm">Ativar</button>
             </form>
-            <form action="/set/{{ id }}/BLOCKED" method="post" style="display:inline">
+            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline">
               <button type="submit" class="btn btn-danger btn-sm">Bloquear</button>
             </form>
-            <form action="/delete/{{ id }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este usuário?');">
+            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
               <button type="submit" class="btn btn-warning btn-sm">Excluir</button>
             </form>
           </td>
