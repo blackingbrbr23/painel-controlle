@@ -3,21 +3,20 @@ import json
 import os
 
 app = Flask(__name__)
-
 CLIENTS_FILE = "clients.json"
 
 def load_clients():
     if not os.path.exists(CLIENTS_FILE):
         return {}
-    with open(CLIENTS_FILE, "r") as f:
+    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
         try:
             return json.load(f)
         except json.JSONDecodeError:
             return {}
 
 def save_clients(clients):
-    with open(CLIENTS_FILE, "w") as f:
-        json.dump(clients, f, indent=2)
+    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(clients, f, indent=2, ensure_ascii=False)
 
 @app.route("/command")
 def command():
@@ -29,7 +28,7 @@ def command():
         clients[client_id] = {
             "nome": "Sem nome",
             "ip": ip,
-            "ativo": False
+            "ativo": True    # cliente já ativo por padrão
         }
     else:
         # Atualiza apenas o IP (não sobrescreve nome nem ativo)
@@ -60,7 +59,6 @@ def rename(client_id):
         save_clients(clients)
     return redirect("/")
 
-# ✅ Rota de exclusão adicionada aqui
 @app.route("/delete/<client_id>", methods=["POST"])
 def delete(client_id):
     clients = load_clients()
