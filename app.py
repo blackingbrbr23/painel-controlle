@@ -20,50 +20,54 @@ def save_clients(clients):
 
 @app.route("/command")
 def command():
-    client_id = request.args.get("id")
+    # Agora usamos o MAC como chave única
+    mac = request.args.get("mac")
     ip = request.args.get("public_ip")
+    if not mac:
+        return jsonify({"error": "MAC não fornecido"}), 400
+
     clients = load_clients()
 
-    if client_id not in clients:
-        clients[client_id] = {
+    if mac not in clients:
+        clients[mac] = {
             "nome": "Sem nome",
             "ip": ip,
             "ativo": True    # cliente já ativo por padrão
         }
     else:
         # Atualiza apenas o IP (não sobrescreve nome nem ativo)
-        clients[client_id]["ip"] = ip
+        clients[mac]["ip"] = ip
 
     save_clients(clients)
-    return jsonify({"ativo": clients[client_id]["ativo"]})
+    return jsonify({"ativo": clients[mac]["ativo"]})
 
 @app.route("/")
 def index():
     clients = load_clients()
     return render_template("index.html", clients=clients)
 
-@app.route("/set/<client_id>/<status>", methods=["POST"])
-def set_status(client_id, status):
+@app.route("/set/<mac>/<status>", methods=["POST"])
+def set_status(mac, status):
     clients = load_clients()
-    if client_id in clients:
-        clients[client_id]["ativo"] = (status == "ACTIVE")
+    if mac in clients:
+        clients[mac]["ativo"] = (status == "ACTIVE")
         save_clients(clients)
     return redirect("/")
 
-@app.route("/rename/<client_id>", methods=["POST"])
-def rename(client_id):
+@app.route("/rename/<mac>", methods=["POST"])
+def rename(mac):
     new_name = request.form.get("nome")
     clients = load_clients()
-    if client_id in clients and new_name:
-        clients[client_id]["nome"] = new_name
+    if mac in clients and new_name:
+        clients[mac]["nome"] = new_name
         save_clients(clients)
     return redirect("/")
 
-@app.route("/delete/<client_id>", methods=["POST"])
-def delete(client_id):
+@app.route("/delete/<mac>", methods=["POST"])
+def delete(mac):
     clients = load_clients()
-    if client_id in clients:
-        del clients[client_id]
+    if mac in clients:
+        del clients[mac]
         save_clients(clients)
     return redirect("/")
 
