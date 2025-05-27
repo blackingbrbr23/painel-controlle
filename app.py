@@ -33,7 +33,7 @@ def command():
         clients[mac] = {
             "nome": "Sem nome",
             "ip": ip,
-            "ativo": True,
+            "ativo": False,
             "last_seen": now_iso
         }
     else:
