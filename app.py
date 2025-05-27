@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, render_template, redirect
-import json
-import os
+import json, os
+from datetime import datetime
 
 app = Flask(__name__)
 CLIENTS_FILE = "clients.json"
@@ -20,23 +20,26 @@ def save_clients(clients):
 
 @app.route("/command")
 def command():
-    # Agora usamos o MAC como chave única
     mac = request.args.get("mac")
     ip = request.args.get("public_ip")
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
     clients = load_clients()
+    now_iso = datetime.utcnow().isoformat()
 
     if mac not in clients:
+        # cliente novo
         clients[mac] = {
             "nome": "Sem nome",
             "ip": ip,
-            "ativo": True    # cliente já ativo por padrão
+            "ativo": True,
+            "last_seen": now_iso
         }
     else:
-        # Atualiza apenas o IP (não sobrescreve nome nem ativo)
+        # apenas atualiza IP e timestamp, sem mexer no nome/ativo
         clients[mac]["ip"] = ip
+        clients[mac]["last_seen"] = now_iso
 
     save_clients(clients)
     return jsonify({"ativo": clients[mac]["ativo"]})
@@ -44,6 +47,7 @@ def command():
 @app.route("/")
 def index():
     clients = load_clients()
+    # opcional: converter last_seen para datetime aqui, se quiser lógica extra
     return render_template("index.html", clients=clients)
 
 @app.route("/set/<mac>/<status>", methods=["POST"])
