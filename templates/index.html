@@ -22,6 +22,7 @@
           <th>Nome</th>
           <th>IP</th>
           <th>Status</th>
+          <th>Último Ping (UTC)</th>
           <th>Ações</th>
         </tr>
       </thead>
@@ -42,6 +43,9 @@
             {% else %}
               <span class="badge bg-danger">Bloqueado</span>
             {% endif %}
+          </td>
+          <td>
+            {{ data.last_seen or '—' }}
           </td>
           <td>
             <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
