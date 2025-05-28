@@ -31,7 +31,8 @@
         <tr>
           <td class="text-break">{{ mac }}</td>
           <td>
-            <form action="/rename/{{ mac }}" method="post" class="form-inline">
+            <form action="/rename" method="post" class="form-inline">
+              <input type="hidden" name="mac" value="{{ mac }}">
               <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
@@ -44,17 +45,20 @@
               <span class="badge bg-danger">Bloqueado</span>
             {% endif %}
           </td>
+          <td>{{ data.last_seen or '—' }}</td>
           <td>
-            {{ data.last_seen or '—' }}
-          </td>
-          <td>
-            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
+            <form action="/set" method="post" style="display:inline">
+              <input type="hidden" name="mac" value="{{ mac }}">
+              <input type="hidden" name="status" value="ACTIVE">
               <button type="submit" class="btn btn-success btn-sm">Ativar</button>
             </form>
-            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline">
+            <form action="/set" method="post" style="display:inline">
+              <input type="hidden" name="mac" value="{{ mac }}">
+              <input type="hidden" name="status" value="BLOCKED">
               <button type="submit" class="btn btn-danger btn-sm">Bloquear</button>
             </form>
-            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
+            <form action="/delete" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
+              <input type="hidden" name="mac" value="{{ mac }}">
               <button type="submit" class="btn btn-warning btn-sm">Excluir</button>
             </form>
           </td>
