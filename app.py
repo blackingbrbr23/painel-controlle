@@ -1,92 +1,66 @@
-from flask import Flask, request, jsonify, render_template, redirect
-import sqlite3
-from datetime import datetime
-import os
-
-app = Flask(__name__)
-DB_FILE = os.path.join(app.root_path, "clients.db")
-
-def init_db():
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS clients (
-                mac TEXT PRIMARY KEY,
-                nome TEXT,
-                ip TEXT,
-                ativo INTEGER,
-                last_seen TEXT
-            )
-        """)
-
-def get_all_clients():
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM clients").fetchall()
-
-def save_client(mac, ip):
-    now = datetime.utcnow().isoformat()
-    with sqlite3.connect(DB_FILE) as conn:
-        cur = conn.cursor()
-        exists = cur.execute("SELECT * FROM clients WHERE mac = ?", (mac,)).fetchone()
-        if exists:
-            cur.execute("UPDATE clients SET ip=?, last_seen=? WHERE mac=?",
-                        (ip, now, mac))
-        else:
-            cur.execute("INSERT INTO clients (mac, nome, ip, ativo, last_seen) VALUES (?, ?, ?, ?, ?)",
-                        (mac, "Sem nome", ip, 0, now))
-        conn.commit()
-
-@app.route("/command")
-def command():
-    raw_mac = request.args.get("mac")
-    ip = request.args.get("public_ip")
-    if not raw_mac:
-        return jsonify({"error": "MAC não fornecido"}), 400
-
-    mac = raw_mac.strip().lower()
-    save_client(mac, ip)
-
-    with sqlite3.connect(DB_FILE) as conn:
-        ativo = conn.execute("SELECT ativo FROM clients WHERE mac=?", (mac,)).fetchone()[0]
-    return jsonify({"ativo": bool(ativo)})
-
-@app.route("/")
-def index():
-    clients = get_all_clients()
-    return render_template("index.html", clients=clients)
-
-@app.route("/set", methods=["POST"])
-def set_status():
-    mac = request.form.get("mac")
-    status = request.form.get("status")
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("UPDATE clients SET ativo=? WHERE mac=?", (1 if status == "ACTIVE" else 0, mac))
-        conn.commit()
-    return redirect("/")
-
-@app.route("/rename", methods=["POST"])
-def rename():
-    mac = request.form.get("mac")
-    new_name = request.form.get("nome")
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("UPDATE clients SET nome=? WHERE mac=?", (new_name, mac))
-        conn.commit()
-    return redirect("/")
-
-@app.route("/delete", methods=["POST"])
-def delete():
-    mac = request.form.get("mac")
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("DELETE FROM clients WHERE mac=?", (mac,))
-        conn.commit()
-    return redirect("/")
-
-# ✅ Nova rota que exibe tudo do banco como JSON
-@app.route("/dados")
-def dados():
-    rows = get_all_clients()
-    return jsonify([dict(row) for row in rows])
-
-if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=10000)
+{% raw %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Painel de Controle</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="p-4">
+  <div class="container">
+    <h1 class="mb-4">Painel de Controle</h1>
+    <table class="table table-bordered table-hover">
+      <thead class="table-light">
+        <tr>
+          <th>MAC</th>
+          <th>Nome</th>
+          <th>IP</th>
+          <th>Status</th>
+          <th>Último Ping</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for mac, data in clients.items() %}
+        <tr>
+          <td>{{ mac }}</td>
+          <td>
+            <form action="/rename" method="post" class="d-flex gap-1">
+              <input type="hidden" name="mac" value="{{ mac }}">
+              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
+              <button class="btn btn-primary btn-sm">Salvar</button>
+            </form>
+          </td>
+          <td>{{ data.ip }}</td>
+          <td>
+            {% if data.ativo %}
+              <span class="badge bg-success">Ativo</span>
+            {% else %}
+              <span class="badge bg-danger">Bloqueado</span>
+            {% endif %}
+          </td>
+          <td>{{ data.last_seen or "—" }}</td>
+          <td>
+            <form action="/set" method="post" style="display:inline">
+              <input type="hidden" name="mac" value="{{ mac }}">
+              <input type="hidden" name="status" value="ACTIVE">
+              <button class="btn btn-success btn-sm">Ativar</button>
+            </form>
+            <form action="/set" method="post" style="display:inline">
+              <input type="hidden" name="mac" value="{{ mac }}">
+              <input type="hidden" name="status" value="BLOCKED">
+              <button class="btn btn-danger btn-sm">Bloquear</button>
+            </form>
+            <form action="/delete" method="post" style="display:inline">
+              <input type="hidden" name="mac" value="{{ mac }}">
+              <button class="btn btn-warning btn-sm">Excluir</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>
+{% endraw %}
