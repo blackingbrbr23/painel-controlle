@@ -4,7 +4,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# usa um arquivo SQLite na mesma pasta do app (será criado se não existir)
+# Path para o banco SQLite (criado automaticamente se não existir)
 DB_PATH = os.path.join(app.root_path, "clients.db")
 
 def get_conn():
@@ -12,7 +12,7 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     return conn
 
-# na inicialização, garante que a tabela exista
+# Inicializa conexão e garante tabela
 conn = get_conn()
 conn.execute("""
 CREATE TABLE IF NOT EXISTS clients (
@@ -41,28 +41,24 @@ def command():
     cur = conn.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
     row = cur.fetchone()
     if row is None:
-        # insere novo cliente
         conn.execute(
-            "INSERT INTO clients(mac,nome,ip,ativo,last_seen) VALUES (?,?,?,?,?)",
+            "INSERT INTO clients(mac, nome, ip, ativo, last_seen) VALUES (?, ?, ?, ?, ?)",
             (mac, "Sem nome", ip, 0, now_iso)
         )
     else:
-        # atualiza IP e timestamp
         conn.execute(
             "UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?",
             (ip, now_iso, mac)
         )
     conn.commit()
 
-    # retorna status atual (0 ou 1)
     cur = conn.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
     ativo = bool(cur.fetchone()["ativo"])
     return jsonify({"ativo": ativo})
 
 @app.route("/")
 def index():
-    # carrega todos os clientes
-    cur = conn.execute("SELECT mac,nome,ip,ativo,last_seen FROM clients")
+    cur = conn.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
     clients = [dict(r) for r in cur.fetchall()]
     return render_template("index.html", clients=clients)
 
@@ -90,6 +86,22 @@ def delete():
     conn.execute("DELETE FROM clients WHERE mac = ?", (mac,))
     conn.commit()
     return redirect("/")
+
+# Exporta todos os clientes como JSON
+@app.route("/export_json")
+def export_json():
+    cur = conn.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
+    clients = [
+        {
+            "mac": row["mac"],
+            "nome": row["nome"],
+            "ip": row["ip"],
+            "ativo": bool(row["ativo"]),
+            "last_seen": row["last_seen"],
+        }
+        for row in cur.fetchall()
+    ]
+    return jsonify(clients)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
