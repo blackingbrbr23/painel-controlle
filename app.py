@@ -1,27 +1,29 @@
 from flask import Flask, request, jsonify, render_template, redirect
-import json, os
+import sqlite3, os
 from datetime import datetime
 
 app = Flask(__name__)
-CLIENTS_FILE = os.path.join(app.root_path, "clients.json")
 
-def load_clients():
-    if not os.path.exists(CLIENTS_FILE):
-        return {}
-    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+# usa um arquivo SQLite na mesma pasta do app (será criado se não existir)
+DB_PATH = os.path.join(app.root_path, "clients.db")
 
+def get_conn():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-def save_clients(clients):
-    print("Gravando em:", CLIENTS_FILE)
-    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(clients, f, indent=2, ensure_ascii=False)
-
-
-
+# na inicialização, garante que a tabela exista
+conn = get_conn()
+conn.execute("""
+CREATE TABLE IF NOT EXISTS clients (
+  mac TEXT PRIMARY KEY,
+  nome TEXT NOT NULL,
+  ip TEXT,
+  ativo INTEGER NOT NULL DEFAULT 0,
+  last_seen TEXT
+)
+""")
+conn.commit()
 
 def normalize_mac(mac: str) -> str:
     return mac.strip().lower()
@@ -34,55 +36,59 @@ def command():
         return jsonify({"error": "MAC não fornecido"}), 400
 
     mac = normalize_mac(raw_mac)
-    clients = load_clients()
     now_iso = datetime.utcnow().isoformat()
 
-    if mac not in clients:
-        clients[mac] = {
-            "nome": "Sem nome",
-            "ip": ip,
-            "ativo": False,
-            "last_seen": now_iso
-        }
+    cur = conn.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
+    row = cur.fetchone()
+    if row is None:
+        # insere novo cliente
+        conn.execute(
+            "INSERT INTO clients(mac,nome,ip,ativo,last_seen) VALUES (?,?,?,?,?)",
+            (mac, "Sem nome", ip, 0, now_iso)
+        )
     else:
-        clients[mac]["ip"] = ip
-        clients[mac]["last_seen"] = now_iso
+        # atualiza IP e timestamp
+        conn.execute(
+            "UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?",
+            (ip, now_iso, mac)
+        )
+    conn.commit()
 
-    save_clients(clients)
-    return jsonify({"ativo": clients[mac]["ativo"]})
+    # retorna status atual (0 ou 1)
+    cur = conn.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
+    ativo = bool(cur.fetchone()["ativo"])
+    return jsonify({"ativo": ativo})
 
 @app.route("/")
 def index():
-    clients = load_clients()
+    # carrega todos os clientes
+    cur = conn.execute("SELECT mac,nome,ip,ativo,last_seen FROM clients")
+    clients = [dict(r) for r in cur.fetchall()]
     return render_template("index.html", clients=clients)
 
 @app.route("/set", methods=["POST"])
 def set_status():
     mac = normalize_mac(request.form.get("mac"))
     status = request.form.get("status")
-    clients = load_clients()
-    if mac in clients and status:
-        clients[mac]["ativo"] = (status == "ACTIVE")
-        save_clients(clients)
+    ativo = 1 if status == "ACTIVE" else 0
+    conn.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
+    conn.commit()
     return redirect("/")
 
 @app.route("/rename", methods=["POST"])
 def rename():
     mac = normalize_mac(request.form.get("mac"))
     new_name = request.form.get("nome")
-    clients = load_clients()
-    if mac in clients and new_name:
-        clients[mac]["nome"] = new_name
-        save_clients(clients)
+    if new_name:
+        conn.execute("UPDATE clients SET nome = ? WHERE mac = ?", (new_name, mac))
+        conn.commit()
     return redirect("/")
 
 @app.route("/delete", methods=["POST"])
 def delete():
     mac = normalize_mac(request.form.get("mac"))
-    clients = load_clients()
-    if mac in clients:
-        del clients[mac]
-        save_clients(clients)
+    conn.execute("DELETE FROM clients WHERE mac = ?", (mac,))
+    conn.commit()
     return redirect("/")
 
 if __name__ == "__main__":
