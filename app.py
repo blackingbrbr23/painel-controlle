@@ -22,6 +22,7 @@ def save_clients(clients):
 
 
 
+
 def normalize_mac(mac: str) -> str:
     return mac.strip().lower()
 
