@@ -16,8 +16,10 @@ def load_clients():
 
 
 def save_clients(clients):
+    print("Gravando em:", CLIENTS_FILE)
     with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
         json.dump(clients, f, indent=2, ensure_ascii=False)
+
 
 
 def normalize_mac(mac: str) -> str:
