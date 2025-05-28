@@ -21,13 +21,16 @@
     .btn-sm {
       padding: 0.25rem 0.5rem;
     }
+    .text-danger {
+      font-size: 0.8rem;
+      display: block;
+      margin-top: 4px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1 class="mb-4">Painel de Controle</h1>
-
-    <a href="/clientes" class="btn btn-primary mb-3">Ver Todos Clientes</a>
 
     <table class="table table-bordered table-hover">
       <thead class="table-light">
@@ -48,6 +51,9 @@
               <input type="text" name="nome" value="{{ client.nome }}" class="form-control form-control-sm" />
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
+            {% if client.nome == "Sem nome" %}
+              <small class="text-danger">Cliente já cadastrado</small>
+            {% endif %}
           </td>
           <td>{{ client.ip }}</td>
           <td>
