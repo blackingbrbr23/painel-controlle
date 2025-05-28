@@ -1,86 +1,123 @@
 from flask import Flask, request, jsonify, render_template, redirect
-import json, os
+import sqlite3, json, os
 from datetime import datetime
 
 app = Flask(__name__)
-CLIENTS_FILE = os.path.join(app.root_path, "clients.json")
+DB_FILE = os.path.join(app.root_path, "clients.db")
+JSON_FILE = os.path.join(app.root_path, "clients.json")
 
-# Garantir que o JSON exista
-def load_clients():
-    if not os.path.exists(CLIENTS_FILE):
-        with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
-    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+# Banco de dados inicial
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS clients (
+            mac TEXT PRIMARY KEY,
+            nome TEXT,
+            ip TEXT,
+            ativo INTEGER,
+            last_seen TEXT
+        )''')
 
-def save_clients(clients):
-    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(clients, f, indent=2, ensure_ascii=False)
+# Exporta dados para JSON
+def export_to_json():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM clients")
+        rows = cur.fetchall()
+        data = {
+            mac: {
+                "nome": nome,
+                "ip": ip,
+                "ativo": bool(ativo),
+                "last_seen": last_seen
+            }
+            for mac, nome, ip, ativo, last_seen in rows
+        }
+    with open(JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-def normalize_mac(mac: str) -> str:
+# Normaliza MAC
+def normalize_mac(mac):
     return mac.strip().lower()
 
-@app.route("/command")
-def command():
-    raw_mac = request.args.get("mac")
-    ip = request.args.get("public_ip")
-    if not raw_mac:
-        return jsonify({"error": "MAC não fornecido"}), 400
-
-    mac = normalize_mac(raw_mac)
-    clients = load_clients()
-    now_iso = datetime.utcnow().isoformat()
-
-    if mac not in clients:
-        clients[mac] = {
-            "nome": "Sem nome",
-            "ip": ip,
-            "ativo": False,
-            "last_seen": now_iso
-        }
-    else:
-        clients[mac]["ip"] = ip
-        clients[mac]["last_seen"] = now_iso
-
-    save_clients(clients)
-    return jsonify({"ativo": clients[mac]["ativo"]})
-
+# Rota principal
 @app.route("/")
 def index():
-    clients = load_clients()
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM clients")
+        rows = cur.fetchall()
+        clients = {
+            mac: {
+                "nome": nome,
+                "ip": ip,
+                "ativo": bool(ativo),
+                "last_seen": last_seen
+            }
+            for mac, nome, ip, ativo, last_seen in rows
+        }
     return render_template("index.html", clients=clients)
 
+# Rota de comando do cliente
+@app.route("/command")
+def command():
+    mac_raw = request.args.get("mac")
+    ip = request.args.get("public_ip")
+    if not mac_raw:
+        return jsonify({"error": "MAC não fornecido"}), 400
+
+    mac = normalize_mac(mac_raw)
+    now = datetime.utcnow().isoformat()
+
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
+        row = cur.fetchone()
+        if row:
+            cur.execute("UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?", (ip, now, mac))
+        else:
+            cur.execute("INSERT INTO clients (mac, nome, ip, ativo, last_seen) VALUES (?, ?, ?, ?, ?)",
+                        (mac, "Sem nome", ip, 0, now))
+        conn.commit()
+    export_to_json()
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
+        ativo = cur.fetchone()[0]
+    return jsonify({"ativo": bool(ativo)})
+
+# Renomear cliente
+@app.route("/rename", methods=["POST"])
+def rename():
+    mac = normalize_mac(request.form.get("mac"))
+    nome = request.form.get("nome")
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE clients SET nome = ? WHERE mac = ?", (nome, mac))
+        conn.commit()
+    export_to_json()
+    return redirect("/")
+
+# Alterar status
 @app.route("/set", methods=["POST"])
 def set_status():
     mac = normalize_mac(request.form.get("mac"))
     status = request.form.get("status")
-    clients = load_clients()
-    if mac in clients and status:
-        clients[mac]["ativo"] = (status == "ACTIVE")
-        save_clients(clients)
+    ativo = 1 if status == "ACTIVE" else 0
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
+        conn.commit()
+    export_to_json()
     return redirect("/")
 
-@app.route("/rename", methods=["POST"])
-def rename():
-    mac = normalize_mac(request.form.get("mac"))
-    new_name = request.form.get("nome")
-    clients = load_clients()
-    if mac in clients and new_name:
-        clients[mac]["nome"] = new_name
-        save_clients(clients)
-    return redirect("/")
-
+# Excluir cliente
 @app.route("/delete", methods=["POST"])
 def delete():
     mac = normalize_mac(request.form.get("mac"))
-    clients = load_clients()
-    if mac in clients:
-        del clients[mac]
-        save_clients(clients)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("DELETE FROM clients WHERE mac = ?", (mac,))
+        conn.commit()
+    export_to_json()
     return redirect("/")
 
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=10000)
