@@ -5,7 +5,7 @@ from datetime import datetime
 app = Flask(__name__)
 CLIENTS_FILE = os.path.join(app.root_path, "clients.json")
 
-# Carrega clientes de JSON
+# Carrega clientes de clients.json
 
 def load_clients():
     if not os.path.exists(CLIENTS_FILE):
@@ -16,9 +16,11 @@ def load_clients():
         except json.JSONDecodeError:
             return {}
 
-# Salva clientes em JSON
+# Salva clientes em clients.json
 
 def save_clients(clients):
+    # Debug: imprime onde está salvando
+    print(f"Salvando clientes em: {CLIENTS_FILE}")
     with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
         json.dump(clients, f, indent=2, ensure_ascii=False)
 
