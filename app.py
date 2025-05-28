@@ -1,39 +1,29 @@
 from flask import Flask, request, jsonify, render_template, redirect
-import sqlite3, os, json
+import json, os
 from datetime import datetime
 
 app = Flask(__name__)
+CLIENTS_FILE = os.path.join(app.root_path, "clients.json")
 
-# Caminhos para o banco SQLite e para o JSON de nomes
-DB_PATH = os.path.join(app.root_path, "clients.db")
-JSON_PATH = os.path.join(app.root_path, "clients.json")
+# Carrega clientes de JSON
 
-# Cria conexão SQLite e inicializa tabela se necessário
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+def load_clients():
+    if not os.path.exists(CLIENTS_FILE):
+        return {}
+    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
 
-conn = get_conn()
-conn.execute("""
-CREATE TABLE IF NOT EXISTS clients (
-  mac TEXT PRIMARY KEY,
-  nome TEXT NOT NULL,
-  ip TEXT,
-  ativo INTEGER NOT NULL DEFAULT 0,
-  last_seen TEXT
-)
-""")
-conn.commit()
+# Salva clientes em JSON
 
-# Exporta apenas os nomes para o JSON
-def dump_names_to_json():
-    cur = conn.execute("SELECT nome FROM clients")
-    names = [row["nome"] for row in cur.fetchall()]
-    with open(JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(names, f, indent=2, ensure_ascii=False)
+def save_clients(clients):
+    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(clients, f, indent=2, ensure_ascii=False)
 
-# Normaliza o MAC para lower-case e sem espaços
+# Normaliza MAC
+
 def normalize_mac(mac: str) -> str:
     return mac.strip().lower()
 
@@ -45,70 +35,59 @@ def command():
         return jsonify({"error": "MAC não fornecido"}), 400
 
     mac = normalize_mac(raw_mac)
+    clients = load_clients()
     now_iso = datetime.utcnow().isoformat()
 
-    cur = conn.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
-    row = cur.fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO clients(mac, nome, ip, ativo, last_seen) VALUES (?, ?, ?, ?, ?)",
-            (mac, "Sem nome", ip, 0, now_iso)
-        )
+    if mac not in clients:
+        # Novo cliente
+        clients[mac] = {
+            "nome": "Sem nome",
+            "ip": ip,
+            "ativo": False,
+            "last_seen": now_iso
+        }
     else:
-        conn.execute(
-            "UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?",
-            (ip, now_iso, mac)
-        )
-    conn.commit()
-    dump_names_to_json()
+        # Cliente já existe: marca como cadastrado
+        clients[mac]["nome"] = "CLIENTE JÁ CADASTRADO"
+        clients[mac]["ip"] = ip
+        clients[mac]["last_seen"] = now_iso
 
-    cur = conn.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
-    ativo = bool(cur.fetchone()["ativo"])
-    return jsonify({"ativo": ativo})
+    save_clients(clients)
+    return jsonify({"status": clients[mac]})
 
 @app.route("/")
 def index():
-    cur = conn.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
-    clients = [dict(r) for r in cur.fetchall()]
+    clients = load_clients()
     return render_template("index.html", clients=clients)
 
 @app.route("/set", methods=["POST"])
 def set_status():
     mac = normalize_mac(request.form.get("mac"))
     status = request.form.get("status")
-    ativo = 1 if status == "ACTIVE" else 0
-    conn.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
-    conn.commit()
-    dump_names_to_json()
+    clients = load_clients()
+    if mac in clients:
+        clients[mac]["ativo"] = (status == "ACTIVE")
+        save_clients(clients)
     return redirect("/")
 
 @app.route("/rename", methods=["POST"])
 def rename():
     mac = normalize_mac(request.form.get("mac"))
     new_name = request.form.get("nome")
-    if new_name:
-        conn.execute("UPDATE clients SET nome = ? WHERE mac = ?", (new_name, mac))
-        conn.commit()
-        dump_names_to_json()
+    clients = load_clients()
+    if mac in clients and new_name:
+        clients[mac]["nome"] = new_name
+        save_clients(clients)
     return redirect("/")
 
 @app.route("/delete", methods=["POST"])
 def delete():
     mac = normalize_mac(request.form.get("mac"))
-    conn.execute("DELETE FROM clients WHERE mac = ?", (mac,))
-    conn.commit()
-    dump_names_to_json()
+    clients = load_clients()
+    if mac in clients:
+        del clients[mac]
+        save_clients(clients)
     return redirect("/")
-
-@app.route("/export_json")
-def export_json():
-    cur = conn.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
-    clients = [
-        { "mac": row["mac"], "nome": row["nome"], "ip": row["ip"],
-          "ativo": bool(row["ativo"]), "last_seen": row["last_seen"] }
-        for row in cur.fetchall()
-    ]
-    return jsonify(clients)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
