@@ -5,31 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Painel de Controle</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f8f9fa; padding: 40px; }
+    .status-msg { font-size: 0.8rem; color: green; margin-top: 4px; }
+  </style>
 </head>
 <body>
-  <div class="container p-4">
-    <h1>Painel de Controle</h1>
-    <button id="btn-load-local" class="btn btn-info my-3">Ver clientes</button>
-    <table class="table table-bordered">
-      <thead><tr><th>MAC</th><th>Nome</th><th>IP</th><th>Status</th><th>Ações</th></tr></thead>
+  <div class="container">
+    <h1 class="mb-4">Painel de Controle</h1>
+    <button id="btn-load-local" class="btn btn-info mb-3">Ver clientes</button>
+    <table class="table table-bordered table-hover">
+      <thead class="table-light">
+        <tr><th>MAC</th><th>Nome</th><th>IP</th><th>Status</th><th>Ações</th></tr>
+      </thead>
       <tbody id="client-table">
-        {% for mac,data in clients.items() %}
-        <tr id="row-{{mac}}">
-          <td>{{mac}}</td><td>
-            <form action="/rename/{{mac}}" method="post" class="d-flex">
-              <input name="nome" value="{{data.nome}}" class="form-control form-control-sm me-2">
+        {% for mac, data in clients.items() %}
+        <tr id="row-{{ mac }}">
+          <td>{{ mac }}</td>
+          <td>
+            <form action="/rename/{{ mac }}" method="post" class="d-flex gap-2">
+              <input name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
               <button class="btn btn-primary btn-sm">Salvar</button>
             </form>
-            <div id="status-{{mac}}" class="text-success small">
-              {% if data.nome!='Sem nome' %}CLIENTE JÁ CADASTRADO{% endif %}
+            <div id="status-{{ mac }}" class="status-msg">
+              {% if data.nome != 'Sem nome' %}CLIENTE JÁ CADASTRADO{% endif %}
             </div>
           </td>
-          <td>{{data.ip}}</td>
-          <td><span class="badge bg-{{data.ativo?'success':'danger'}}">{{data.ativo?'Ativo':'Bloqueado'}}</span></td>
+          <td>{{ data.ip }}</td>
           <td>
-            <form action="/set/{{mac}}/ACTIVE" method="post" class="d-inline"><button class="btn btn-success btn-sm">Ativar</button></form>
-            <form action="/set/{{mac}}/BLOCKED" method="post" class="d-inline"><button class="btn btn-danger btn-sm">Bloquear</button></form>
-            <form action="/delete/{{mac}}" method="post" class="d-inline" onsubmit="return confirm('Excluir?')"><button class="btn btn-warning btn-sm">Excluir</button></form>
+            {% if data.ativo %}
+              <span class="badge bg-success">Ativo</span>
+            {% else %}
+              <span class="badge bg-danger">Bloqueado</span>
+            {% endif %}
+          </td>
+          <td>
+            <form action="/set/{{ mac }}/ACTIVE" method="post" class="d-inline"><button class="btn btn-success btn-sm">Ativar</button></form>
+            <form action="/set/{{ mac }}/BLOCKED" method="post" class="d-inline"><button class="btn btn-danger btn-sm">Bloquear</button></form>
+            <form action="/delete/{{ mac }}" method="post" class="d-inline" onsubmit="return confirm('Excluir?');"><button class="btn btn-warning btn-sm">Excluir</button></form>
           </td>
         </tr>
         {% endfor %}
@@ -41,38 +54,38 @@
   <script>
     const socket = io();
 
-    // resposta de locais
-    socket.on('response_local', data => {
-      const clients = data.clients;
+    socket.on('client_update', data => {
+      const row = document.getElementById(`row-${data.mac}`);
+      if (row) {
+        document.getElementById(`status-${data.mac}`).textContent = data.nome !== 'Sem nome' ? 'CLIENTE JÁ CADASTRADO' : '';
+      } else {
+        location.reload();
+      }
+    });
+
+    document.getElementById('btn-load-local').addEventListener('click', () => {
+      socket.emit('request_local');
+    });
+
+    socket.on('response_local', payload => {
+      const clients = payload.clients;
       Object.values(clients).forEach(c => {
         const row = document.getElementById(`row-${c.mac}`);
-        if(row) {
+        if (row) {
           document.getElementById(`status-${c.mac}`).textContent = 'CLIENTE JÁ CADASTRADO';
         } else {
-          // adicionar novo local
           const tbody = document.getElementById('client-table');
           const tr = document.createElement('tr'); tr.id = `row-${c.mac}`;
           tr.innerHTML = `
             <td>${c.mac}</td>
-            <td>${c.nome} <div class="text-success small">CLIENTE LOCAL</div></td>
-            <td>${c.ip||''}</td>
+            <td>${c.nome}<div class="status-msg">CLIENTE LOCAL</div></td>
+            <td>${c.ip || ''}</td>
             <td><span class="badge bg-secondary">Desconhecido</span></td>
-            <td>-</td>`;
+            <td>-</td>
+          `;
           tbody.appendChild(tr);
         }
       });
-    });
-
-    // botão carrega local
-    document.getElementById('btn-load-local').onclick = () => {
-      socket.emit('request_local');
-    };
-
-    // eventos remotos de criação/atualização
-    socket.on('client_update', data => {
-      const row = document.getElementById(`row-${data.mac}`);
-      if(row) document.getElementById(`status-${data.mac}`).textContent = data.nome!='Sem nome'?'CLIENTE JÁ CADASTRADO':'';
-      else location.reload();
     });
   </script>
 </body>
