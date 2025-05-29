@@ -1,82 +1,106 @@
-from flask import Flask, request, redirect, render_template
+from flask import Flask, request, jsonify, render_template, redirect
+import psycopg2
+from datetime import datetime
 import os
-import dropbox
-import json
+
+# ---- CONFIG ----
+DATABASE_URL = os.getenv("DATABASE_URL") or "sua_string_postgres_aqui"
+# ----------------
 
 app = Flask(__name__)
 
-# Conectar ao Dropbox
-DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")
-if not DROPBOX_TOKEN:
-    raise ValueError("DROPBOX_TOKEN não definido nas variáveis de ambiente.")
+def connect_db():
+    return psycopg2.connect(DATABASE_URL)
 
-dbx = dropbox.Dropbox(DROPBOX_TOKEN)
+def init_db():
+    conn = connect_db()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
+        mac TEXT PRIMARY KEY,
+        nome TEXT,
+        ip TEXT,
+        ativo BOOLEAN,
+        last_seen TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
 
-# Dicionário de clientes
-clientes = {}
+def get_clients():
+    conn = connect_db()
+    cur = conn.cursor()
+    cur.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
+    rows = cur.fetchall()
+    conn.close()
+    return {mac: {"nome": nome, "ip": ip, "ativo": ativo, "last_seen": last_seen} for mac, nome, ip, ativo, last_seen in rows}
 
-@app.route('/')
-def index():
-    return render_template('index.html', clients=clientes)
+def save_client(mac, nome, ip, ativo, last_seen):
+    conn = connect_db()
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO clients (mac, nome, ip, ativo, last_seen)
+    VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (mac) DO UPDATE SET
+        nome = EXCLUDED.nome,
+        ip = EXCLUDED.ip,
+        ativo = EXCLUDED.ativo,
+        last_seen = EXCLUDED.last_seen
+    """, (mac, nome, ip, ativo, last_seen))
+    conn.commit()
+    conn.close()
 
-@app.route('/rename/<mac>', methods=['POST'])
-def rename(mac):
-    novo_nome = request.form['nome']
-    if mac in clientes:
-        clientes[mac]['nome'] = novo_nome
-    else:
-        clientes[mac] = {'mac': mac, 'nome': novo_nome, 'ip': '', 'ativo': True}
+def delete_client(mac):
+    conn = connect_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM clients WHERE mac = %s", (mac,))
+    conn.commit()
+    conn.close()
 
-    salvar_cliente_dropbox(clientes[mac])
-    return redirect('/')
-
-@app.route('/command')
+@app.route("/command")
 def command():
-    mac = request.args.get('mac')
-    public_ip = request.args.get('public_ip')
+    mac = request.args.get("mac")
+    ip = request.args.get("public_ip")
+    if not mac:
+        return jsonify({"error": "MAC não fornecido"}), 400
 
-    if mac:
-        if mac not in clientes:
-            clientes[mac] = {
-                'mac': mac,
-                'nome': 'Desconhecido',
-                'ip': public_ip,
-                'ativo': True
-            }
-        else:
-            clientes[mac]['ip'] = public_ip
+    now_iso = datetime.utcnow().isoformat()
+    clients = get_clients()
 
-        salvar_cliente_dropbox(clientes[mac])
+    if mac not in clients:
+        save_client(mac, "Sem nome", ip, False, now_iso)
+    else:
+        client = clients[mac]
+        save_client(mac, client["nome"], ip, client["ativo"], now_iso)
 
-    return "OK"
+    return jsonify({"ativo": get_clients()[mac]["ativo"]})
 
-@app.route('/set/<mac>/<status>', methods=['POST'])
+@app.route("/")
+def index():
+    return render_template("index.html", clients=get_clients())
+
+@app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
-    if mac in clientes:
-        clientes[mac]['ativo'] = (status == 'ACTIVE')
-        salvar_cliente_dropbox(clientes[mac])
-    return redirect('/')
+    clients = get_clients()
+    if mac in clients:
+        c = clients[mac]
+        save_client(mac, c["nome"], c["ip"], status == "ACTIVE", c["last_seen"])
+    return redirect("/")
 
-@app.route('/delete/<mac>', methods=['POST'])
+@app.route("/rename/<mac>", methods=["POST"])
+def rename(mac):
+    new_name = request.form.get("nome")
+    clients = get_clients()
+    if mac in clients and new_name:
+        c = clients[mac]
+        save_client(mac, new_name, c["ip"], c["ativo"], c["last_seen"])
+    return redirect("/")
+
+@app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
-    if mac in clientes:
-        del clientes[mac]
-        caminho = f"/clientes/{mac.replace(':', '_')}.json"
-        try:
-            dbx.files_delete_v2(caminho)
-        except Exception as e:
-            print(f"[!] Erro ao deletar no Dropbox: {e}")
-    return redirect('/')
+    delete_client(mac)
+    return redirect("/")
 
-def salvar_cliente_dropbox(cliente):
-    try:
-        dados = json.dumps(cliente, indent=4)
-        caminho = f"/clientes/{cliente['mac'].replace(':', '_')}.json"
-        dbx.files_upload(dados.encode(), caminho, mode=dropbox.files.WriteMode.overwrite)
-        print(f"[✓] Cliente salvo no Dropbox: {caminho}")
-    except Exception as e:
-        print(f"[X] Erro ao salvar cliente no Dropbox: {e}")
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
-
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=10000)
