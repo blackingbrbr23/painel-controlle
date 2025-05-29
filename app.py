@@ -1,43 +1,52 @@
-from flask import Flask, request, jsonify, render_template, redirect
-import sqlite3, os
+import os
 from datetime import datetime
+from flask import Flask, request, jsonify, render_template, redirect
+from flask_sqlalchemy import SQLAlchemy
+from flask_socketio import SocketIO
 
 app = Flask(__name__)
-DB_FILE = "clients.db"
+# Configura a conexão com o banco: Postgres em produção (via DATABASE_URL) ou SQLite local
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///clients.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+db = SQLAlchemy(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+class Client(db.Model):
+    mac = db.Column(db.String, primary_key=True)
+    nome = db.Column(db.String, default='Sem nome')
+    ip = db.Column(db.String)
+    ativo = db.Column(db.Boolean, default=False)
+    last_seen = db.Column(db.DateTime)
+
+@app.before_first_request
 def init_db():
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS clients (
-                mac TEXT PRIMARY KEY,
-                nome TEXT,
-                ip TEXT,
-                ativo INTEGER,
-                last_seen TEXT
-            )
-        """)
-        conn.commit()
+    db.create_all()
 
-def get_all_clients():
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
-        rows = c.fetchall()
-        return {
-            mac: {
-                "nome": nome,
-                "ip": ip,
-                "ativo": bool(ativo),
-                "last_seen": last_seen
-            }
-            for mac, nome, ip, ativo, last_seen in rows
-        }
+# Função para emitir atualizações via WebSocket
+def emit_update(client: Client):
+    payload = {
+        "mac": client.mac,
+        "nome": client.nome,
+        "ip": client.ip,
+        "ativo": client.ativo,
+        "last_seen": client.last_seen.isoformat() if client.last_seen else None
+    }
+    socketio.emit('client_update', payload)
 
 @app.route("/")
 def index():
-    clients = get_all_clients()
-    return render_template("index.html", clients=clients)
+    clients = Client.query.all()
+    clients_dict = {
+        c.mac: {
+            "nome": c.nome,
+            "ip": c.ip,
+            "ativo": c.ativo,
+            "last_seen": c.last_seen.isoformat() if c.last_seen else ""
+        }
+        for c in clients
+    }
+    return render_template("index.html", clients=clients_dict)
 
 @app.route("/command")
 def command():
@@ -46,53 +55,50 @@ def command():
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
-    now_iso = datetime.utcnow().isoformat()
+    now = datetime.utcnow()
+    client = Client.query.get(mac)
+    if client:
+        client.ip = ip
+        client.last_seen = now
+        ativo = client.ativo
+    else:
+        client = Client(mac=mac, nome="Sem nome", ip=ip, ativo=False, last_seen=now)
+        db.session.add(client)
+        ativo = False
 
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
-        result = c.fetchone()
-
-        if result:
-            # já cadastrado, só atualiza IP e last_seen
-            c.execute("UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?", (ip, now_iso, mac))
-            ativo = result[3]
-        else:
-            # ainda não cadastrado, adiciona com nome vazio, mas não marca como CLIENTE JÁ CADASTRADO
-            c.execute("INSERT INTO clients (mac, nome, ip, ativo, last_seen) VALUES (?, ?, ?, ?, ?)", (mac, "Sem nome", ip, 0, now_iso))
-            ativo = 0
-
-        conn.commit()
-
-    return jsonify({"ativo": bool(ativo)})
+    db.session.commit()
+    emit_update(client)
+    return jsonify({"ativo": ativo})
 
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
-    nome = request.form.get("nome")
-    if nome:
-        with sqlite3.connect(DB_FILE) as conn:
-            c = conn.cursor()
-            c.execute("UPDATE clients SET nome = ? WHERE mac = ?", (nome.strip(), mac))
-            conn.commit()
+    nome = request.form.get("nome", "").strip()
+    client = Client.query.get(mac)
+    if client and nome:
+        client.nome = nome
+        db.session.commit()
+        emit_update(client)
     return redirect("/")
 
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
-    ativo = 1 if status == "ACTIVE" else 0
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
-        conn.commit()
+    client = Client.query.get(mac)
+    if client:
+        client.ativo = True if status == "ACTIVE" else False
+        db.session.commit()
+        emit_update(client)
     return redirect("/")
 
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("DELETE FROM clients WHERE mac = ?", (mac,))
-        conn.commit()
+    client = Client.query.get(mac)
+    if client:
+        db.session.delete(client)
+        db.session.commit()
+        # Emite evento de deleção opcional
+        socketio.emit('client_delete', {"mac": mac})
     return redirect("/")
 
 if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=10000)
+    # Use eventlet ou gevent em produção: pip install eventlet
+    socketio.run(app, host="0.0.0.0", port=10000)
