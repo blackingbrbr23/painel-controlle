@@ -5,7 +5,6 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
-# Configura a conexão com o banco: Postgres em produção (via DATABASE_URL) ou SQLite local
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///clients.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -19,37 +18,34 @@ class Client(db.Model):
     ativo = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime)
 
-# Emite evento de criação/atualização de cliente via WebSocket
+# Emite evento para frontend quando um cliente é atualizado ou criado
 def emit_update(client: Client):
     payload = {
-        "mac": client.mac,
-        "nome": client.nome,
-        "ip": client.ip,
-        "ativo": client.ativo,
-        "last_seen": client.last_seen.isoformat() if client.last_seen else None
+        'mac': client.mac,
+        'nome': client.nome,
+        'ip': client.ip,
+        'ativo': client.ativo,
+        'last_seen': client.last_seen.isoformat() if client.last_seen else None
     }
     socketio.emit('client_update', payload)
 
-@app.route("/")
+@app.route('/')
 def index():
     clients = Client.query.all()
-    clients_dict = {
-        c.mac: {
-            "nome": c.nome,
-            "ip": c.ip,
-            "ativo": c.ativo,
-            "last_seen": c.last_seen.isoformat() if c.last_seen else ""
-        }
-        for c in clients
-    }
-    return render_template("index.html", clients=clients_dict)
+    clients_dict = {c.mac: {
+        'nome': c.nome,
+        'ip': c.ip,
+        'ativo': c.ativo,
+        'last_seen': c.last_seen.isoformat() if c.last_seen else ''
+    } for c in clients}
+    return render_template('index.html', clients=clients_dict)
 
-@app.route("/command")
+@app.route('/command')
 def command():
-    mac = request.args.get("mac")
-    ip = request.args.get("public_ip")
+    mac = request.args.get('mac')
+    ip = request.args.get('public_ip')
     if not mac:
-        return jsonify({"error": "MAC não fornecido"}), 400
+        return jsonify({'error': 'MAC não fornecido'}), 400
 
     now = datetime.utcnow()
     client = Client.query.get(mac)
@@ -58,46 +54,43 @@ def command():
         client.last_seen = now
         ativo = client.ativo
     else:
-        client = Client(mac=mac, nome="Sem nome", ip=ip, ativo=False, last_seen=now)
+        client = Client(mac=mac, nome='Sem nome', ip=ip, ativo=False, last_seen=now)
         db.session.add(client)
         ativo = False
 
     db.session.commit()
     emit_update(client)
-    return jsonify({"ativo": ativo})
+    return jsonify({'ativo': ativo})
 
-@app.route("/rename/<mac>", methods=["POST"])
+@app.route('/rename/<mac>', methods=['POST'])
 def rename(mac):
-    nome = request.form.get("nome", "").strip()
+    nome = request.form.get('nome','').strip()
     client = Client.query.get(mac)
     if client and nome:
         client.nome = nome
         db.session.commit()
         emit_update(client)
-    return redirect("/")
+    return redirect('/')
 
-@app.route("/set/<mac>/<status>", methods=["POST"])
+@app.route('/set/<mac>/<status>', methods=['POST'])
 def set_status(mac, status):
     client = Client.query.get(mac)
     if client:
-        client.ativo = True if status == "ACTIVE" else False
+        client.ativo = (status == 'ACTIVE')
         db.session.commit()
         emit_update(client)
-    return redirect("/")
+    return redirect('/')
 
-@app.route("/delete/<mac>", methods=["POST"])
+@app.route('/delete/<mac>', methods=['POST'])
 def delete(mac):
     client = Client.query.get(mac)
     if client:
         db.session.delete(client)
         db.session.commit()
-        socketio.emit('client_delete', {"mac": mac})
-    return redirect("/")
+        socketio.emit('client_delete', {'mac': mac})
+    return redirect('/')
 
-if __name__ == "__main__":
-    # Inicializa o banco dentro do contexto da aplicação
+if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    # Use eventlet ou gevent em produção: pip install eventlet
-    # Para permitir o uso do servidor Werkzeug em produção no Render, habilite allow_unsafe_werkzeug
-    socketio.run(app, host="0.0.0.0", port=10000, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=10000, allow_unsafe_werkzeug=True)
