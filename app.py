@@ -1,20 +1,19 @@
 import os
-import eventlet
-eventlet.monkey_patch()
-
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, redirect
 from flask_sqlalchemy import SQLAlchemy
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit
+import eventlet
+
+# Monkey-patch para eventlet
+eventlet.monkey_patch()
 
 app = Flask(__name__)
-# Usa PostgreSQL em produção (DATABASE_URL) ou SQLite local
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///clients.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-# Eventlet automaticamente fará o servidor web + WS
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins='*')
 
 class Client(db.Model):
     mac = db.Column(db.String, primary_key=True)
@@ -23,6 +22,7 @@ class Client(db.Model):
     ativo = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime)
 
+# Emite evento remoto a todos os conectados
 def emit_update(client: Client):
     payload = {
         'mac': client.mac,
@@ -36,14 +36,7 @@ def emit_update(client: Client):
 @app.route('/')
 def index():
     clients = Client.query.all()
-    clients_dict = {
-        c.mac: {
-            'nome': c.nome,
-            'ip': c.ip,
-            'ativo': c.ativo,
-            'last_seen': c.last_seen.isoformat() if c.last_seen else ''
-        } for c in clients
-    }
+    clients_dict = {c.mac: {'nome': c.nome, 'ip': c.ip, 'ativo': c.ativo, 'last_seen': c.last_seen.isoformat() if c.last_seen else ''} for c in clients}
     return render_template('index.html', clients=clients_dict)
 
 @app.route('/command')
@@ -52,7 +45,6 @@ def command():
     ip = request.args.get('public_ip')
     if not mac:
         return jsonify({'error': 'MAC não fornecido'}), 400
-
     now = datetime.utcnow()
     client = Client.query.get(mac)
     if client:
@@ -63,7 +55,6 @@ def command():
         client = Client(mac=mac, nome='Sem nome', ip=ip, ativo=False, last_seen=now)
         db.session.add(client)
         ativo = False
-
     db.session.commit()
     emit_update(client)
     return jsonify({'ativo': ativo})
@@ -91,15 +82,25 @@ def set_status(mac, status):
 def delete(mac):
     client = Client.query.get(mac)
     if client:
+        macid = client.mac
         db.session.delete(client)
         db.session.commit()
-        socketio.emit('client_delete', {'mac': mac})
+        socketio.emit('client_delete', {'mac': macid})
     return redirect('/')
 
+# SocketIO: front chama 'request_local'
+@socketio.on('request_local')
+def handle_request_local():
+    # repassa pedido aos clientes conectados (listener local)
+    socketio.emit('fetch_local')
+
+# SocketIO: listener local emite sua resposta
+@socketio.on('response_local')
+def handle_response_local(data):
+    # data: {'clients': { mac: {...}, ... }}
+    socketio.emit('response_local', data)
+
 if __name__ == '__main__':
-    # Cria as tabelas dentro do contexto da app
     with app.app_context():
         db.create_all()
-
-    # Roda com Eventlet (HTTP + WS) sem o erro de Werkzeug
     socketio.run(app, host='0.0.0.0', port=10000)
