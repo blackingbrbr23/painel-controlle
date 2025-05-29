@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Painel de Controle</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
     body { background-color: #f8f9fa; padding: 40px; }
     .table th, .table td { vertical-align: middle; }
     .form-inline { display: flex; gap: 10px; }
     .btn-sm { padding: 0.25rem 0.5rem; }
+    .status-msg { font-size: 0.8rem; color: green; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -30,11 +31,13 @@
         <tr>
           <td class="text-break">{{ mac }}</td>
           <td>
-           <form action="/rename/{{ mac }}" method="post" class="form-inline">
-            <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
-            <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
-          </form>
-          <small class="text-success">CLIENTE JÁ CADASTRADO</small>
+            <form action="/rename/{{ mac }}" method="post" class="form-inline">
+              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm" />
+              <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
+            </form>
+            {% if data.nome != "Sem nome" %}
+              <div class="status-msg">CLIENTE JÁ CADASTRADO</div>
+            {% endif %}
           </td>
           <td>{{ data.ip }}</td>
           <td>
@@ -60,33 +63,6 @@
       </tbody>
     </table>
   </div>
-
-  <script>
-    // Após cada submissão de formulário, forçamos reload da página ao voltar para o index
-    if (window.performance && performance.navigation.type === 1) {
-      // Recarregamento detectado (F5)
-    } else {
-      // Se não foi F5 ou refresh manual, forçar reload
-      window.addEventListener('pageshow', () => {
-        location.reload();
-      });
-    }
-  
-    // Lógica do localStorage
-    const clientsFromServer = {{ clients|tojson }};
-    const localClients = JSON.parse(localStorage.getItem('clients') || '{}');
-  
-    for (const mac in clientsFromServer) {
-      if (localClients[mac]) {
-        console.log("CLIENTE JÁ CADASTRADO:", mac);
-      } else {
-        console.log("NOVO CLIENTE:", mac);
-        localClients[mac] = clientsFromServer[mac];
-      }
-    }
-  
-    localStorage.setItem('clients', JSON.stringify(localClients));
-  </script>
-
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
