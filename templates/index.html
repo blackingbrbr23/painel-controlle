@@ -30,10 +30,11 @@
         <tr>
           <td class="text-break">{{ mac }}</td>
           <td>
-            <form action="/rename/{{ mac }}" method="post" class="form-inline">
-              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
-              <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
-            </form>
+           <form action="/rename/{{ mac }}" method="post" class="form-inline">
+            <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
+            <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
+          </form>
+          <small class="text-success">CLIENTE JÁ CADASTRADO</small>
           </td>
           <td>{{ data.ip }}</td>
           <td>
