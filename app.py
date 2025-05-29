@@ -5,6 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
+# Usa PostgreSQL em produção (DATABASE_URL) ou SQLite local
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///clients.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -18,7 +19,6 @@ class Client(db.Model):
     ativo = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime)
 
-# Emite evento para frontend quando um cliente é atualizado ou criado
 def emit_update(client: Client):
     payload = {
         'mac': client.mac,
@@ -32,12 +32,14 @@ def emit_update(client: Client):
 @app.route('/')
 def index():
     clients = Client.query.all()
-    clients_dict = {c.mac: {
-        'nome': c.nome,
-        'ip': c.ip,
-        'ativo': c.ativo,
-        'last_seen': c.last_seen.isoformat() if c.last_seen else ''
-    } for c in clients}
+    clients_dict = {
+        c.mac: {
+            'nome': c.nome,
+            'ip': c.ip,
+            'ativo': c.ativo,
+            'last_seen': c.last_seen.isoformat() if c.last_seen else ''
+        } for c in clients
+    }
     return render_template('index.html', clients=clients_dict)
 
 @app.route('/command')
@@ -91,6 +93,8 @@ def delete(mac):
     return redirect('/')
 
 if __name__ == '__main__':
+    # Cria as tabelas dentro do contexto da app
     with app.app_context():
         db.create_all()
+    # Permite usar Werkzeug no Render com segurança desativada
     socketio.run(app, host='0.0.0.0', port=10000, allow_unsafe_werkzeug=True)
