@@ -38,7 +38,7 @@
             <form action="/rename/{{ mac }}" method="post" class="form-inline">
               <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm" />
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
-              {% if not mac in temp_clients %}
+              {% if mac not in temp_clients %}
                 <span class="text-success-small">✔️ Cadastrado</span>
               {% endif %}
             </form>
