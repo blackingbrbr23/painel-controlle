@@ -1,40 +1,28 @@
 import os
-from flask import Flask, request, jsonify, render_template, redirect
-from flask_sqlalchemy import SQLAlchemy
+import jsonrom flask import Flask, request, jsonify, render_template, redirect
 from datetime import datetime
-from urllib.parse import urlparse
 
 # Configuração da aplicação
 app = Flask(__name__)
 
-# Determina a URI do banco de dados:
-# Em produção no Render, use DATABASE_URL (Postgres gerenciado)
-# Em desenvolvimento local, cai para SQLite local
-database_url = os.getenv('DATABASE_URL', 'sqlite:///clients.db')
+# Caminho do disco persistente (Render)
+PERSISTENT_PATH = os.getenv('RENDER_PERSISTENT_DISK_PATH', '/data')
+DATA_FILE = os.path.join(PERSISTENT_PATH, 'clients.json')
 
-# Ajusta a URL se for um Postgres no formato render
-if database_url.startswith('postgres://'):
-    # SQLAlchemy exige 'postgresql://' em vez de 'postgres://'
-    parsed_url = urlparse(database_url)
-    database_url = parsed_url._replace(scheme='postgresql').geturl()
+# Garante diretório e arquivo
+os.makedirs(PERSISTENT_PATH, exist_ok=True)
+if not os.path.isfile(DATA_FILE):
+    with open(DATA_FILE, 'w') as f:
+        json.dump({}, f)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Funções utilitárias para JSON
+def load_clients():
+    with open(DATA_FILE, 'r') as f:
+        return json.load(f)
 
-db = SQLAlchemy(app)
-
-# Modelo de Cliente com flag de cadastro
-class Client(db.Model):
-    mac         = db.Column(db.String(17), primary_key=True)
-    nome        = db.Column(db.String(100), nullable=False, default='Sem nome')
-    ip          = db.Column(db.String(45))
-    ativo       = db.Column(db.Boolean, default=False)
-    cadastrado  = db.Column(db.Boolean, default=False)
-    last_seen   = db.Column(db.DateTime)
-
-# Cria o banco e as tabelas caso não existam
-with app.app_context():
-    db.create_all()
+def save_clients(data):
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2, default=str)
 
 @app.route("/command")
 def command():
@@ -43,50 +31,61 @@ def command():
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
-    cliente = Client.query.get(mac)
-    now = datetime.utcnow()
-    if not cliente:
-        cliente = Client(mac=mac, ip=ip, last_seen=now)
-        db.session.add(cliente)
-    else:
-        cliente.ip = ip
-        cliente.last_seen = now
+    clients = load_clients()
+    now = datetime.utcnow().isoformat()
 
-    db.session.commit()
-    return jsonify({"ativo": cliente.ativo})
+    if mac not in clients:
+        clients[mac] = {
+            'nome': 'Sem nome',
+            'ip': ip,
+            'ativo': False,
+            'cadastrado': False,
+            'last_seen': now
+        }
+    else:
+        clients[mac]['ip'] = ip
+        clients[mac]['last_seen'] = now
+
+    save_clients(clients)
+    return jsonify({"ativo": clients[mac]['ativo']})
 
 @app.route("/")
 def index():
-    clients = Client.query.order_by(Client.mac).all()
-    return render_template("index.html", clients=clients)
+    clients = load_clients()
+    # Converte dict para lista de objetos para template
+    clients_list = []
+    for mac, data in sorted(clients.items()):
+        obj = {'mac': mac}
+        obj.update(data)
+        clients_list.append(obj)
+    return render_template("index.html", clients=clients_list)
 
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
-    c = Client.query.get(mac)
-    if c:
-        c.ativo = (status == "ACTIVE")
-        db.session.commit()
+    clients = load_clients()
+    if mac in clients:
+        clients[mac]['ativo'] = (status == "ACTIVE")
+        save_clients(clients)
     return redirect("/")
 
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
     new_name = request.form.get("nome")
-    c = Client.query.get(mac)
-    if c and new_name:
-        c.nome = new_name
-        c.cadastrado = True
-        db.session.commit()
+    clients = load_clients()
+    if mac in clients and new_name:
+        clients[mac]['nome'] = new_name
+        clients[mac]['cadastrado'] = True
+        save_clients(clients)
     return redirect("/")
 
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
-    c = Client.query.get(mac)
-    if c:
-        db.session.delete(c)
-        db.session.commit()
+    clients = load_clients()
+    if mac in clients:
+        del clients[mac]
+        save_clients(clients)
     return redirect("/")
 
 if __name__ == "__main__":
-    # Porta pode vir do Render via PORT
     port = int(os.getenv('PORT', 10000))
     app.run(host="0.0.0.0", port=port)
