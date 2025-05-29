@@ -1,79 +1,79 @@
 from flask import Flask, request, jsonify, render_template, redirect
-import json, os
+from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import os
 
 app = Flask(__name__)
-CLIENTS_FILE = "clients.json"
+# Configuração do banco SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///clients.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-def load_clients():
-    if not os.path.exists(CLIENTS_FILE):
-        return {}
-    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+db = SQLAlchemy(app)
 
-def save_clients(clients):
-    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(clients, f, indent=2, ensure_ascii=False)
+# Modelo de Cliente
+class Client(db.Model):
+    mac       = db.Column(db.String(17), primary_key=True)
+    nome      = db.Column(db.String(100), nullable=False, default='Sem nome')
+    ip        = db.Column(db.String(45))
+    ativo     = db.Column(db.Boolean, default=False)
+    last_seen = db.Column(db.DateTime)
+
+# Cria o banco e as tabelas caso não existam
+with app.app_context():
+    db.create_all()
 
 @app.route("/command")
 def command():
     mac = request.args.get("mac")
-    ip = request.args.get("public_ip")
+    ip  = request.args.get("public_ip")
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
-    clients = load_clients()
-    now_iso = datetime.utcnow().isoformat()
-
-    if mac not in clients:
-        # cliente novo
-        clients[mac] = {
-            "nome": "Sem nome",
-            "ip": ip,
-            "ativo": False,
-            "last_seen": now_iso
-        }
+    cliente = Client.query.get(mac)
+    now = datetime.utcnow()
+    if not cliente:
+        # novo cliente
+        cliente = Client(mac=mac, ip=ip, last_seen=now)
+        db.session.add(cliente)
     else:
-        # apenas atualiza IP e timestamp, sem mexer no nome/ativo
-        clients[mac]["ip"] = ip
-        clients[mac]["last_seen"] = now_iso
+        # atualiza IP e timestamp
+        cliente.ip = ip
+        cliente.last_seen = now
 
-    save_clients(clients)
-    return jsonify({"ativo": clients[mac]["ativo"]})
+    db.session.commit()
+    return jsonify({"ativo": cliente.ativo})
 
 @app.route("/")
 def index():
-    clients = load_clients()
-    # opcional: converter last_seen para datetime aqui, se quiser lógica extra
+    # lista todos os clientes ordenados por MAC
+    clients = Client.query.order_by(Client.mac).all()
     return render_template("index.html", clients=clients)
 
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
-    clients = load_clients()
-    if mac in clients:
-        clients[mac]["ativo"] = (status == "ACTIVE")
-        save_clients(clients)
+    c = Client.query.get(mac)
+    if c:
+        c.ativo = (status == "ACTIVE")
+        db.session.commit()
     return redirect("/")
 
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
     new_name = request.form.get("nome")
-    clients = load_clients()
-    if mac in clients and new_name:
-        clients[mac]["nome"] = new_name
-        save_clients(clients)
+    c = Client.query.get(mac)
+    if c and new_name:
+        c.nome = new_name
+        db.session.commit()
     return redirect("/")
 
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
-    clients = load_clients()
-    if mac in clients:
-        del clients[mac]
-        save_clients(clients)
+    c = Client.query.get(mac)
+    if c:
+        db.session.delete(c)
+        db.session.commit()
     return redirect("/")
 
 if __name__ == "__main__":
+    # host e porta podem ser ajustados conforme necessidade
     app.run(host="0.0.0.0", port=10000)
