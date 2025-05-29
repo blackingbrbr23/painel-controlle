@@ -16,6 +16,7 @@
 <body>
   <div class="container">
     <h1 class="mb-4">Painel de Controle</h1>
+    <button id="btn-load-local" class="btn btn-info mb-3">Ver clientes</button>
     <table class="table table-bordered table-hover">
       <thead class="table-light">
         <tr>
@@ -35,16 +36,27 @@
               <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
-            <div class="status-msg" id="status-{{ mac }}">{% if data.nome != 'Sem nome' %}CLIENTE JÁ CADASTRADO{% endif %}</div>
+            <div class="status-msg" id="status-{{ mac }}">
+              {% if data.nome != 'Sem nome' %}CLIENTE JÁ CADASTRADO{% endif %}
+            </div>
           </td>
           <td>{{ data.ip }}</td>
           <td>
-            <span class="badge bg-{{ 'success' if data.ativo else 'danger' }}">{{ 'Ativo' if data.ativo else 'Bloqueado' }}</span>
+            <span class="badge bg-{{ 'success' if data.ativo else 'danger' }}">
+              {{ 'Ativo' if data.ativo else 'Bloqueado' }}
+            </span>
           </td>
           <td>
-            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline"><button class="btn btn-success btn-sm">Ativar</button></form>
-            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline"><button class="btn btn-danger btn-sm">Bloquear</button></form>
-            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Confirmar exclusão?');"><button class="btn btn-warning btn-sm">Excluir</button></form>
+            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
+              <button class="btn btn-success btn-sm">Ativar</button>
+            </form>
+            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline">
+              <button class="btn btn-danger btn-sm">Bloquear</button>
+            </form>
+            <form action="/delete/{{ mac }}" method="post" style="display:inline" 
+                  onsubmit="return confirm('Confirmar exclusão?');">
+              <button class="btn btn-warning btn-sm">Excluir</button>
+            </form>
           </td>
         </tr>
         {% endfor %}
@@ -54,32 +66,52 @@
 
   <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
   <script>
-    // Conecta ao servidor SocketIO para atualizações em tempo real
     const socket = io();
+
+    // Atualizações em tempo real do servidor remoto
     socket.on('client_update', data => {
-      // Atualiza ou insere linha na tabela
       let row = document.getElementById(`row-${data.mac}`);
-      const statusDiv = document.getElementById(`status-${data.mac}`);
-      if (!row) location.reload(); // fallback simples
-      else {
-        statusDiv.textContent = data.nome !== 'Sem nome' ? 'CLIENTE JÁ CADASTRADO' : '';
+      if (row) {
+        document.getElementById(`status-${data.mac}`)
+          .textContent = data.nome !== 'Sem nome' ? 'CLIENTE JÁ CADASTRADO' : '';
+      } else {
+        // Se não existe, recarrega a página (fallback)
+        location.reload();
       }
     });
 
-    // Polling local: tenta conectar ao listener local a cada segundo
-    setInterval(async () => {
+    // Carrega clientes do JSON local ao clicar
+    document.getElementById('btn-load-local').addEventListener('click', async () => {
       try {
         const resp = await fetch('http://localhost:5001/clients.json');
-        if (!resp.ok) throw new Error();
+        if (!resp.ok) throw new Error('Falha ao buscar JSON local');
         const localClients = await resp.json();
-        Object.keys(localClients).forEach(mac => {
-          const statusDiv = document.getElementById(`status-${mac}`);
-          if (statusDiv) statusDiv.textContent = 'CLIENTE JÁ CADASTRADO';
+        Object.values(localClients).forEach(data => {
+          let row = document.getElementById(`row-${data.mac}`);
+          if (row) {
+            document.getElementById(`status-${data.mac}`)
+              .textContent = 'CLIENTE JÁ CADASTRADO';
+          } else {
+            const tbody = document.getElementById('client-table');
+            const tr = document.createElement('tr');
+            tr.id = `row-${data.mac}`;
+            tr.innerHTML = `
+              <td>${data.mac}</td>
+              <td>
+                <span>${data.nome}</span>
+                <div class="status-msg">CLIENTE LOCAL</div>
+              </td>
+              <td>${data.ip || ''}</td>
+              <td><span class="badge bg-secondary">Desconhecido</span></td>
+              <td>-</td>
+            `;
+            tbody.appendChild(tr);
+          }
         });
-      } catch(err) {
-        // console.log('Listener local não disponível');
+      } catch (err) {
+        alert('Não foi possível conectar ao programa local.');
       }
-    }, 1000);
+    });
   </script>
 </body>
 </html>
