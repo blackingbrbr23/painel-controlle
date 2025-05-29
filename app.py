@@ -1,11 +1,24 @@
+import os
 from flask import Flask, request, jsonify, render_template, redirect
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-import os
+from urllib.parse import urlparse
 
+# Configuração da aplicação
 app = Flask(__name__)
-# Configuração do banco SQLite
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///clients.db'
+
+# Determina a URI do banco de dados:
+# Em produção no Render, use DATABASE_URL (Postgres gerenciado)
+# Em desenvolvimento local, cai para SQLite local
+database_url = os.getenv('DATABASE_URL', 'sqlite:///clients.db')
+
+# Ajusta a URL se for um Postgres no formato render
+if database_url.startswith('postgres://'):
+    # SQLAlchemy exige 'postgresql://' em vez de 'postgres://'
+    parsed_url = urlparse(database_url)
+    database_url = parsed_url._replace(scheme='postgresql').geturl()
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -21,7 +34,6 @@ class Client(db.Model):
 
 # Cria o banco e as tabelas caso não existam
 with app.app_context():
-    # Se não existir, cria tudo; para alterar esquemas, delete clients.db antes ou use migrações
     db.create_all()
 
 @app.route("/command")
@@ -34,11 +46,9 @@ def command():
     cliente = Client.query.get(mac)
     now = datetime.utcnow()
     if not cliente:
-        # novo cliente: cadastrado permanece False até ação no painel
         cliente = Client(mac=mac, ip=ip, last_seen=now)
         db.session.add(cliente)
     else:
-        # atualiza IP e timestamp
         cliente.ip = ip
         cliente.last_seen = now
 
@@ -47,7 +57,6 @@ def command():
 
 @app.route("/")
 def index():
-    # lista todos os clientes ordenados por MAC
     clients = Client.query.order_by(Client.mac).all()
     return render_template("index.html", clients=clients)
 
@@ -65,7 +74,6 @@ def rename(mac):
     c = Client.query.get(mac)
     if c and new_name:
         c.nome = new_name
-        # marca como cadastrado quando clicar salvar
         c.cadastrado = True
         db.session.commit()
     return redirect("/")
@@ -79,4 +87,6 @@ def delete(mac):
     return redirect("/")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    # Porta pode vir do Render via PORT
+    port = int(os.getenv('PORT', 10000))
+    app.run(host="0.0.0.0", port=port)
