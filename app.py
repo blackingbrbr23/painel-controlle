@@ -10,16 +10,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Modelo de Cliente
+# Modelo de Cliente com flag de cadastro
 class Client(db.Model):
-    mac       = db.Column(db.String(17), primary_key=True)
-    nome      = db.Column(db.String(100), nullable=False, default='Sem nome')
-    ip        = db.Column(db.String(45))
-    ativo     = db.Column(db.Boolean, default=False)
-    last_seen = db.Column(db.DateTime)
+    mac         = db.Column(db.String(17), primary_key=True)
+    nome        = db.Column(db.String(100), nullable=False, default='Sem nome')
+    ip          = db.Column(db.String(45))
+    ativo       = db.Column(db.Boolean, default=False)
+    cadastrado  = db.Column(db.Boolean, default=False)
+    last_seen   = db.Column(db.DateTime)
 
 # Cria o banco e as tabelas caso não existam
 with app.app_context():
+    # Se não existir, cria tudo; para alterar esquemas, delete clients.db antes ou use migrações
     db.create_all()
 
 @app.route("/command")
@@ -32,7 +34,7 @@ def command():
     cliente = Client.query.get(mac)
     now = datetime.utcnow()
     if not cliente:
-        # novo cliente
+        # novo cliente: cadastrado permanece False até ação no painel
         cliente = Client(mac=mac, ip=ip, last_seen=now)
         db.session.add(cliente)
     else:
@@ -63,6 +65,8 @@ def rename(mac):
     c = Client.query.get(mac)
     if c and new_name:
         c.nome = new_name
+        # marca como cadastrado quando clicar salvar
+        c.cadastrado = True
         db.session.commit()
     return redirect("/")
 
@@ -75,5 +79,4 @@ def delete(mac):
     return redirect("/")
 
 if __name__ == "__main__":
-    # host e porta podem ser ajustados conforme necessidade
     app.run(host="0.0.0.0", port=10000)
