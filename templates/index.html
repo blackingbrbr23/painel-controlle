@@ -14,10 +14,7 @@
 </head>
 <body>
   <div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1 class="mb-0">Painel de Controle</h1>
-      <a href="/ver_clientes" class="btn btn-info btn-sm">Ver Clientes</a>
-    </div>
+    <h1 class="mb-4">Painel de Controle</h1>
     <table class="table table-bordered table-hover">
       <thead class="table-light">
         <tr>
@@ -29,34 +26,31 @@
         </tr>
       </thead>
       <tbody>
-        {% for client in clients %}
+        {% for mac, data in clients.items() %}
         <tr>
-          <td class="text-break">{{ client.mac }}</td>
+          <td class="text-break">{{ mac }}</td>
           <td>
-            <form action="/rename/{{ client.mac }}" method="post" class="form-inline">
-              <input type="text" name="nome" value="{{ client.nome }}" class="form-control form-control-sm">
+            <form action="/rename/{{ mac }}" method="post" class="form-inline">
+              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
-            {% if not client.cadastrado %}
-              <div class="text-danger small mt-1">Cliente não cadastrado</div>
-            {% endif %}
           </td>
-          <td>{{ client.ip }}</td>
+          <td>{{ data.ip }}</td>
           <td>
-            {% if client.ativo %}
+            {% if data.ativo %}
               <span class="badge bg-success">Ativo</span>
             {% else %}
               <span class="badge bg-danger">Bloqueado</span>
             {% endif %}
           </td>
           <td>
-            <form action="/set/{{ client.mac }}/ACTIVE" method="post" style="display:inline">
+            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
               <button type="submit" class="btn btn-success btn-sm">Ativar</button>
             </form>
-            <form action="/set/{{ client.mac }}/BLOCKED" method="post" style="display:inline">
+            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline">
               <button type="submit" class="btn btn-danger btn-sm">Bloquear</button>
             </form>
-            <form action="/delete/{{ client.mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
+            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
               <button type="submit" class="btn btn-warning btn-sm">Excluir</button>
             </form>
           </td>
