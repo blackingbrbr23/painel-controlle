@@ -1,50 +1,57 @@
+from flask import Flask, request, redirect, render_template
 import os
-import json
 import dropbox
-from flask import Flask, request, jsonify
+import json
 
 app = Flask(__name__)
-DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")
-DROPBOX_PATH = "/clients.json"
 
-# Inicializa o cliente Dropbox
+# Conectar ao Dropbox
+DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")
 dbx = dropbox.Dropbox(DROPBOX_TOKEN)
 
-def carregar_json_dropbox():
+# Dicionário de clientes (você pode integrar com banco depois)
+clientes = {}
+
+@app.route('/')
+def index():
+    return render_template('index.html', clientes=clientes)
+
+@app.route('/rename/<mac>', methods=['POST'])
+def rename(mac):
+    novo_nome = request.form['new_name']
+    
+    clientes[mac] = {
+        'mac': mac,
+        'nome': novo_nome
+    }
+
+    salvar_cliente_dropbox(clientes[mac])
+    return redirect('/')
+
+@app.route('/command')
+def command():
+    mac = request.args.get('mac')
+    public_ip = request.args.get('public_ip')
+
+    # Se ainda não registrado
+    if mac and mac not in clientes:
+        clientes[mac] = {
+            'mac': mac,
+            'nome': 'Desconhecido',
+            'ip': public_ip
+        }
+        salvar_cliente_dropbox(clientes[mac])
+
+    return "OK"
+
+def salvar_cliente_dropbox(cliente):
     try:
-        _, res = dbx.files_download(DROPBOX_PATH)
-        data = json.loads(res.content)
-        return data
-    except dropbox.exceptions.ApiError:
-        # Se o arquivo não existe ainda, retorna lista vazia
-        return []
+        dados = json.dumps(cliente, indent=4)
+        caminho = f"/clientes/{cliente['mac'].replace(':', '_')}.json"
+        dbx.files_upload(dados.encode(), caminho, mode=dropbox.files.WriteMode.overwrite)
+        print(f"[✓] Cliente salvo no Dropbox: {caminho}")
+    except Exception as e:
+        print(f"[X] Erro ao salvar cliente no Dropbox: {e}")
 
-def salvar_json_dropbox(data):
-    json_data = json.dumps(data, indent=2)
-    dbx.files_upload(
-        json_data.encode('utf-8'),
-        DROPBOX_PATH,
-        mode=dropbox.files.WriteMode.overwrite
-    )
-
-@app.route("/salvar_cliente", methods=["POST"])
-def salvar_cliente():
-    novo_cliente = request.json
-    clientes = carregar_json_dropbox()
-
-    # Verifica se já existe cliente com mesmo MAC
-    for c in clientes:
-        if c["mac"] == novo_cliente["mac"]:
-            return jsonify({"erro": "Cliente já cadastrado."}), 400
-
-    clientes.append(novo_cliente)
-    salvar_json_dropbox(clientes)
-    return jsonify({"mensagem": "Cliente salvo com sucesso."}), 200
-
-@app.route("/clientes", methods=["GET"])
-def listar_clientes():
-    clientes = carregar_json_dropbox()
-    return jsonify(clientes)
-
-if __name__ == "__main__":
-    app.run(debug=True)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
