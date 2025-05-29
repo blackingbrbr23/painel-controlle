@@ -1,79 +1,50 @@
-from flask import Flask, request, jsonify, render_template, redirect
-import json, os
-from datetime import datetime
+import os
+import json
+import dropbox
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-CLIENTS_FILE = "clients.json"
+DROPBOX_TOKEN = os.getenv("DROPBOX_TOKEN")
+DROPBOX_PATH = "/clients.json"
 
-def load_clients():
-    if not os.path.exists(CLIENTS_FILE):
-        return {}
-    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
+# Inicializa o cliente Dropbox
+dbx = dropbox.Dropbox(DROPBOX_TOKEN)
 
-def save_clients(clients):
-    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(clients, f, indent=2, ensure_ascii=False)
+def carregar_json_dropbox():
+    try:
+        _, res = dbx.files_download(DROPBOX_PATH)
+        data = json.loads(res.content)
+        return data
+    except dropbox.exceptions.ApiError:
+        # Se o arquivo não existe ainda, retorna lista vazia
+        return []
 
-@app.route("/command")
-def command():
-    mac = request.args.get("mac")
-    ip = request.args.get("public_ip")
-    if not mac:
-        return jsonify({"error": "MAC não fornecido"}), 400
+def salvar_json_dropbox(data):
+    json_data = json.dumps(data, indent=2)
+    dbx.files_upload(
+        json_data.encode('utf-8'),
+        DROPBOX_PATH,
+        mode=dropbox.files.WriteMode.overwrite
+    )
 
-    clients = load_clients()
-    now_iso = datetime.utcnow().isoformat()
+@app.route("/salvar_cliente", methods=["POST"])
+def salvar_cliente():
+    novo_cliente = request.json
+    clientes = carregar_json_dropbox()
 
-    if mac not in clients:
-        # cliente novo
-        clients[mac] = {
-            "nome": "Sem nome",
-            "ip": ip,
-            "ativo": False,
-            "last_seen": now_iso
-        }
-    else:
-        # apenas atualiza IP e timestamp, sem mexer no nome/ativo
-        clients[mac]["ip"] = ip
-        clients[mac]["last_seen"] = now_iso
+    # Verifica se já existe cliente com mesmo MAC
+    for c in clientes:
+        if c["mac"] == novo_cliente["mac"]:
+            return jsonify({"erro": "Cliente já cadastrado."}), 400
 
-    save_clients(clients)
-    return jsonify({"ativo": clients[mac]["ativo"]})
+    clientes.append(novo_cliente)
+    salvar_json_dropbox(clientes)
+    return jsonify({"mensagem": "Cliente salvo com sucesso."}), 200
 
-@app.route("/")
-def index():
-    clients = load_clients()
-    # opcional: converter last_seen para datetime aqui, se quiser lógica extra
-    return render_template("index.html", clients=clients)
-
-@app.route("/set/<mac>/<status>", methods=["POST"])
-def set_status(mac, status):
-    clients = load_clients()
-    if mac in clients:
-        clients[mac]["ativo"] = (status == "ACTIVE")
-        save_clients(clients)
-    return redirect("/")
-
-@app.route("/rename/<mac>", methods=["POST"])
-def rename(mac):
-    new_name = request.form.get("nome")
-    clients = load_clients()
-    if mac in clients and new_name:
-        clients[mac]["nome"] = new_name
-        save_clients(clients)
-    return redirect("/")
-
-@app.route("/delete/<mac>", methods=["POST"])
-def delete(mac):
-    clients = load_clients()
-    if mac in clients:
-        del clients[mac]
-        save_clients(clients)
-    return redirect("/")
+@app.route("/clientes", methods=["GET"])
+def listar_clientes():
+    clientes = carregar_json_dropbox()
+    return jsonify(clientes)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)
