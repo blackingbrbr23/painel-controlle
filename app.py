@@ -95,8 +95,8 @@ def delete(mac):
     return redirect("/")
 
 if __name__ == "__main__":
-    # Inicializa o banco antes de iniciar o servidor
-    db.create_all()
+    # Inicializa o banco dentro do contexto da aplicação
+    with app.app_context():
+        db.create_all()
     # Use eventlet ou gevent em produção: pip install eventlet
     socketio.run(app, host="0.0.0.0", port=10000)
-
