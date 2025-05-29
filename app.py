@@ -1,4 +1,7 @@
 import os
+import eventlet
+eventlet.monkey_patch()
+
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, redirect
 from flask_sqlalchemy import SQLAlchemy
@@ -10,6 +13,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+# Eventlet automaticamente fará o servidor web + WS
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 class Client(db.Model):
@@ -96,5 +100,6 @@ if __name__ == '__main__':
     # Cria as tabelas dentro do contexto da app
     with app.app_context():
         db.create_all()
-    # Permite usar Werkzeug no Render com segurança desativada
-    socketio.run(app, host='0.0.0.0', port=10000, allow_unsafe_werkzeug=True)
+
+    # Roda com Eventlet (HTTP + WS) sem o erro de Werkzeug
+    socketio.run(app, host='0.0.0.0', port=10000)
