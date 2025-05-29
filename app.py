@@ -19,11 +19,7 @@ class Client(db.Model):
     ativo = db.Column(db.Boolean, default=False)
     last_seen = db.Column(db.DateTime)
 
-@app.before_first_request
-def init_db():
-    db.create_all()
-
-# Função para emitir atualizações via WebSocket
+# Emite evento de criação/atualização de cliente via WebSocket
 def emit_update(client: Client):
     payload = {
         "mac": client.mac,
@@ -95,10 +91,12 @@ def delete(mac):
     if client:
         db.session.delete(client)
         db.session.commit()
-        # Emite evento de deleção opcional
         socketio.emit('client_delete', {"mac": mac})
     return redirect("/")
 
 if __name__ == "__main__":
+    # Inicializa o banco antes de iniciar o servidor
+    db.create_all()
     # Use eventlet ou gevent em produção: pip install eventlet
     socketio.run(app, host="0.0.0.0", port=10000)
+
