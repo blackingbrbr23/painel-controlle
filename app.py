@@ -1,40 +1,38 @@
-from flask import Flask, request, jsonify, render_template, redirect
+from flask import Flask, request, jsonify, render_template, redirect, g
 import sqlite3
 from datetime import datetime
-import os
 
 app = Flask(__name__)
-DB_FILE = "clients.db"
+DATABASE = 'clients.db'
 
-# Garante que o banco e a tabela existem
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
+
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clients (
-            mac TEXT PRIMARY KEY,
-            nome TEXT,
-            ip TEXT,
-            ativo INTEGER,
-            last_seen TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    with app.app_context():
+        db = get_db()
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS clients (
+                mac TEXT PRIMARY KEY,
+                nome TEXT,
+                ip TEXT,
+                ativo INTEGER,
+                last_seen TEXT,
+                cadastrado INTEGER
+            )
+        ''')
+        db.commit()
 
-init_db()
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
-# Retorna todos os clientes
-def get_all_clients():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients")
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
-
-# Salva/atualiza cliente que acessa /command
 @app.route("/command")
 def command():
     mac = request.args.get("mac")
@@ -42,72 +40,61 @@ def command():
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
+    db = get_db()
+    cur = db.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
+    client = cur.fetchone()
     now = datetime.utcnow().isoformat()
 
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
-    client = cursor.fetchone()
-
     if client is None:
-        # Novo cliente
-        cursor.execute(
-            "INSERT INTO clients (mac, nome, ip, ativo, last_seen) VALUES (?, ?, ?, ?, ?)",
-            (mac, "Sem nome", ip, 0, now)
-        )
+        db.execute("INSERT INTO clients (mac, nome, ip, ativo, last_seen, cadastrado) VALUES (?, ?, ?, ?, ?, ?)",
+                   (mac, 'Sem nome', ip, 0, now, 0))
     else:
-        # Atualiza IP e timestamp
-        cursor.execute(
-            "UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?",
-            (ip, now, mac)
-        )
+        db.execute("UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?", (ip, now, mac))
+    db.commit()
 
-    conn.commit()
-    cursor.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
-    ativo = cursor.fetchone()[0]
-    conn.close()
-
+    cur = db.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
+    ativo = cur.fetchone()["ativo"]
     return jsonify({"ativo": bool(ativo)})
 
-# Página principal
 @app.route("/")
 def index():
-    clients = get_all_clients()
+    db = get_db()
+    cur = db.execute("SELECT * FROM clients")
+    clients = cur.fetchall()
     return render_template("index.html", clients=clients)
 
-# Ativar/bloquear cliente
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
+    db = get_db()
     ativo = 1 if status == "ACTIVE" else 0
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
-    conn.commit()
-    conn.close()
+    db.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
+    db.commit()
     return redirect("/")
 
-# Renomear cliente
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
     new_name = request.form.get("nome")
     if new_name:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE clients SET nome = ? WHERE mac = ?", (new_name, mac))
-        conn.commit()
-        conn.close()
+        db = get_db()
+        db.execute("UPDATE clients SET nome = ?, cadastrado = 1 WHERE mac = ?", (new_name, mac))
+        db.commit()
     return redirect("/")
 
-# Excluir cliente
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM clients WHERE mac = ?", (mac,))
-    conn.commit()
-    conn.close()
+    db = get_db()
+    db.execute("DELETE FROM clients WHERE mac = ?", (mac,))
+    db.commit()
     return redirect("/")
 
+@app.route("/ver_clientes")
+def ver_clientes():
+    db = get_db()
+    cur = db.execute("SELECT * FROM clients WHERE cadastrado = 1")
+    clients = cur.fetchall()
+    return render_template("clientes.html", clients=clients)
+
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=10000)
+
