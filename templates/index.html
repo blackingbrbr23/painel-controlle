@@ -75,15 +75,14 @@
         document.getElementById(`status-${data.mac}`)
           .textContent = data.nome !== 'Sem nome' ? 'CLIENTE JÁ CADASTRADO' : '';
       } else {
-        // Se não existe, recarrega a página (fallback)
         location.reload();
       }
     });
 
-    // Carrega clientes do JSON local ao clicar
+    // Carrega clientes do JSON local ao clicar (HTTPS)
     document.getElementById('btn-load-local').addEventListener('click', async () => {
       try {
-        const resp = await fetch('http://localhost:5001/clients.json');
+        const resp = await fetch('https://localhost:5001/clients.json');
         if (!resp.ok) throw new Error('Falha ao buscar JSON local');
         const localClients = await resp.json();
         Object.values(localClients).forEach(data => {
@@ -109,7 +108,7 @@
           }
         });
       } catch (err) {
-        alert('Não foi possível conectar ao programa local.');
+        alert('Não foi possível conectar ao programa local (HTTPS).');
       }
     });
   </script>
