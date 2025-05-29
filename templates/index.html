@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Painel de Controle</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { background-color: #f8f9fa; padding: 40px; }
     .table th, .table td { vertical-align: middle; }
@@ -26,43 +26,60 @@
           <th>Ações</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="client-table">
         {% for mac, data in clients.items() %}
-        <tr>
-          <td class="text-break">{{ mac }}</td>
+        <tr id="row-{{ mac }}">
+          <td>{{ mac }}</td>
           <td>
             <form action="/rename/{{ mac }}" method="post" class="form-inline">
-              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm" />
+              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm">
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
-            {% if data.nome != "Sem nome" %}
-              <div class="status-msg">CLIENTE JÁ CADASTRADO</div>
-            {% endif %}
+            <div class="status-msg" id="status-{{ mac }}">{% if data.nome != 'Sem nome' %}CLIENTE JÁ CADASTRADO{% endif %}</div>
           </td>
           <td>{{ data.ip }}</td>
           <td>
-            {% if data.ativo %}
-              <span class="badge bg-success">Ativo</span>
-            {% else %}
-              <span class="badge bg-danger">Bloqueado</span>
-            {% endif %}
+            <span class="badge bg-{{ 'success' if data.ativo else 'danger' }}">{{ 'Ativo' if data.ativo else 'Bloqueado' }}</span>
           </td>
           <td>
-            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
-              <button type="submit" class="btn btn-success btn-sm">Ativar</button>
-            </form>
-            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline">
-              <button type="submit" class="btn btn-danger btn-sm">Bloquear</button>
-            </form>
-            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
-              <button type="submit" class="btn btn-warning btn-sm">Excluir</button>
-            </form>
+            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline"><button class="btn btn-success btn-sm">Ativar</button></form>
+            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline"><button class="btn btn-danger btn-sm">Bloquear</button></form>
+            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Confirmar exclusão?');"><button class="btn btn-warning btn-sm">Excluir</button></form>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+  <script>
+    // Conecta ao servidor SocketIO para atualizações em tempo real
+    const socket = io();
+    socket.on('client_update', data => {
+      // Atualiza ou insere linha na tabela
+      let row = document.getElementById(`row-${data.mac}`);
+      const statusDiv = document.getElementById(`status-${data.mac}`);
+      if (!row) location.reload(); // fallback simples
+      else {
+        statusDiv.textContent = data.nome !== 'Sem nome' ? 'CLIENTE JÁ CADASTRADO' : '';
+      }
+    });
+
+    // Polling local: tenta conectar ao listener local a cada segundo
+    setInterval(async () => {
+      try {
+        const resp = await fetch('http://localhost:5001/clients.json');
+        if (!resp.ok) throw new Error();
+        const localClients = await resp.json();
+        Object.keys(localClients).forEach(mac => {
+          const statusDiv = document.getElementById(`status-${mac}`);
+          if (statusDiv) statusDiv.textContent = 'CLIENTE JÁ CADASTRADO';
+        });
+      } catch(err) {
+        // console.log('Listener local não disponível');
+      }
+    }, 1000);
+  </script>
 </body>
 </html>
