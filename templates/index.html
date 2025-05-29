@@ -15,8 +15,8 @@
 <body>
   <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
-      <h1>Painel de Controle</h1>
-      <a href="/ver_clientes" class="btn btn-info btn-sm">VER CLIENTES</a>
+      <h1 class="mb-0">Painel de Controle</h1>
+      <a href="/ver_clientes" class="btn btn-info btn-sm">Ver Clientes</a>
     </div>
     <table class="table table-bordered table-hover">
       <thead class="table-light">
@@ -34,10 +34,12 @@
           <td class="text-break">{{ client.mac }}</td>
           <td>
             <form action="/rename/{{ client.mac }}" method="post" class="form-inline">
-              <input type="text" name="nome" value="{{ client.nome }}" class="form-control form-control-sm"
-                     {% if not client.cadastrado %} style="color:red;" {% endif %}>
+              <input type="text" name="nome" value="{{ client.nome }}" class="form-control form-control-sm">
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
+            {% if not client.cadastrado %}
+              <div class="text-danger small mt-1">Cliente não cadastrado</div>
+            {% endif %}
           </td>
           <td>{{ client.ip }}</td>
           <td>
