@@ -1,41 +1,22 @@
 from flask import Flask, request, jsonify, render_template, redirect
-import sqlite3
+import json, os
 from datetime import datetime
 
 app = Flask(__name__)
-DATABASE = "clientes.db"
+CLIENTS_FILE = "clients.json"
 
-def init_db():
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS clients (
-        mac TEXT PRIMARY KEY,
-        nome TEXT,
-        ip TEXT,
-        ativo INTEGER,
-        last_seen TEXT,
-        cadastrado INTEGER DEFAULT 0
-    )''')
-    conn.commit()
-    conn.close()
+def load_clients():
+    if not os.path.exists(CLIENTS_FILE):
+        return {}
+    with open(CLIENTS_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
 
-def get_all_clients():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients")
-    clients = cursor.fetchall()
-    conn.close()
-    return clients
-
-def get_cadastrados():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clients WHERE cadastrado = 1")
-    clients = cursor.fetchall()
-    conn.close()
-    return clients
+def save_clients(clients):
+    with open(CLIENTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(clients, f, indent=2, ensure_ascii=False)
 
 @app.route("/command")
 def command():
@@ -44,64 +25,55 @@ def command():
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
-    now = datetime.utcnow().isoformat()
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
+    clients = load_clients()
+    now_iso = datetime.utcnow().isoformat()
 
-    cursor.execute("SELECT * FROM clients WHERE mac = ?", (mac,))
-    result = cursor.fetchone()
-
-    if result:
-        cursor.execute("UPDATE clients SET ip = ?, last_seen = ? WHERE mac = ?", (ip, now, mac))
+    if mac not in clients:
+        # cliente novo
+        clients[mac] = {
+            "nome": "Sem nome",
+            "ip": ip,
+            "ativo": False,
+            "last_seen": now_iso
+        }
     else:
-        cursor.execute("INSERT INTO clients (mac, nome, ip, ativo, last_seen, cadastrado) VALUES (?, ?, ?, ?, ?, 0)", (mac, "Sem nome", ip, 0, now))
+        # apenas atualiza IP e timestamp, sem mexer no nome/ativo
+        clients[mac]["ip"] = ip
+        clients[mac]["last_seen"] = now_iso
 
-    conn.commit()
-    cursor.execute("SELECT ativo FROM clients WHERE mac = ?", (mac,))
-    ativo = cursor.fetchone()[0]
-    conn.close()
-    return jsonify({"ativo": bool(ativo)})
+    save_clients(clients)
+    return jsonify({"ativo": clients[mac]["ativo"]})
 
 @app.route("/")
 def index():
-    clients = get_all_clients()
+    clients = load_clients()
+    # opcional: converter last_seen para datetime aqui, se quiser lógica extra
     return render_template("index.html", clients=clients)
-
-@app.route("/ver_clientes")
-def ver_clientes():
-    clients = get_cadastrados()
-    return render_template("clientes.html", clients=clients)
-
-@app.route("/rename/<mac>", methods=["POST"])
-def rename(mac):
-    nome = request.form.get("nome")
-    if nome:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE clients SET nome = ?, cadastrado = 1 WHERE mac = ?", (nome, mac))
-        conn.commit()
-        conn.close()
-    return redirect("/")
 
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
-    ativo = 1 if status == "ACTIVE" else 0
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE clients SET ativo = ? WHERE mac = ?", (ativo, mac))
-    conn.commit()
-    conn.close()
+    clients = load_clients()
+    if mac in clients:
+        clients[mac]["ativo"] = (status == "ACTIVE")
+        save_clients(clients)
+    return redirect("/")
+
+@app.route("/rename/<mac>", methods=["POST"])
+def rename(mac):
+    new_name = request.form.get("nome")
+    clients = load_clients()
+    if mac in clients and new_name:
+        clients[mac]["nome"] = new_name
+        save_clients(clients)
     return redirect("/")
 
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM clients WHERE mac = ?", (mac,))
-    conn.commit()
-    conn.close()
+    clients = load_clients()
+    if mac in clients:
+        del clients[mac]
+        save_clients(clients)
     return redirect("/")
 
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=10000)
