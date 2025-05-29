@@ -10,16 +10,14 @@
     .table th, .table td { vertical-align: middle; }
     .form-inline { display: flex; gap: 10px; }
     .btn-sm { padding: 0.25rem 0.5rem; }
-    .badge-warning { background-color: #ffc107; color: #000; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h1>Painel de Controle</h1>
-      <a href="/clientes_cadastrados" class="btn btn-info">VER CLIENTES</a>
+      <a href="/ver_clientes" class="btn btn-info btn-sm">VER CLIENTES</a>
     </div>
-
     <table class="table table-bordered table-hover">
       <thead class="table-light">
         <tr>
@@ -31,34 +29,32 @@
         </tr>
       </thead>
       <tbody>
-        {% for mac, data in clients.items() %}
+        {% for client in clients %}
         <tr>
-          <td class="text-break">{{ mac }}</td>
+          <td class="text-break">{{ client.mac }}</td>
           <td>
-            <form action="/rename/{{ mac }}" method="post" class="form-inline">
-              <input type="text" name="nome" value="{{ data.nome }}" class="form-control form-control-sm" required>
+            <form action="/rename/{{ client.mac }}" method="post" class="form-inline">
+              <input type="text" name="nome" value="{{ client.nome }}" class="form-control form-control-sm"
+                     {% if not client.cadastrado %} style="color:red;" {% endif %}>
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
-            {% if data.nome != "Sem nome" %}
-              <div class="text-danger mt-1" style="font-size: 0.9em;">Cliente já cadastrado</div>
-            {% endif %}
           </td>
-          <td>{{ data.ip }}</td>
+          <td>{{ client.ip }}</td>
           <td>
-            {% if data.ativo %}
+            {% if client.ativo %}
               <span class="badge bg-success">Ativo</span>
             {% else %}
               <span class="badge bg-danger">Bloqueado</span>
             {% endif %}
           </td>
           <td>
-            <form action="/set/{{ mac }}/ACTIVE" method="post" style="display:inline">
+            <form action="/set/{{ client.mac }}/ACTIVE" method="post" style="display:inline">
               <button type="submit" class="btn btn-success btn-sm">Ativar</button>
             </form>
-            <form action="/set/{{ mac }}/BLOCKED" method="post" style="display:inline">
+            <form action="/set/{{ client.mac }}/BLOCKED" method="post" style="display:inline">
               <button type="submit" class="btn btn-danger btn-sm">Bloquear</button>
             </form>
-            <form action="/delete/{{ mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
+            <form action="/delete/{{ client.mac }}" method="post" style="display:inline" onsubmit="return confirm('Tem certeza que deseja excluir este cliente?');">
               <button type="submit" class="btn btn-warning btn-sm">Excluir</button>
             </form>
           </td>
