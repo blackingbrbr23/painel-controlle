@@ -99,4 +99,5 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     # Use eventlet ou gevent em produção: pip install eventlet
-    socketio.run(app, host="0.0.0.0", port=10000)
+    # Para permitir o uso do servidor Werkzeug em produção no Render, habilite allow_unsafe_werkzeug
+    socketio.run(app, host="0.0.0.0", port=10000, allow_unsafe_werkzeug=True)
