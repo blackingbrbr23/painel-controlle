@@ -6,3 +6,6 @@ eventlet
 dropbox
 psycopg2-binary
 dotenv
+psycopg2-binary
+python-dotenv
+
