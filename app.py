@@ -4,41 +4,30 @@ import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
 
-# ----------------------------------------------------------
-# 1) CARREGA VARIÁVEIS DE AMBIENTE (.env)
-# ----------------------------------------------------------
+# Carrega o .env apenas em ambiente local. No Render, 
+# .env não é lido; ele usa as variáveis definidas no painel.
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("A variável DATABASE_URL não foi encontrada. Verifique seu .env")
+app = Flask(__name__)
 
 # ----------------------------------------------------------
-# 2) INICIALIZA O FLASK E A FUNÇÃO DE CONEXÃO
+# 1) BUSCA A VARIÁVEL DE AMBIENTE (supabase) OU ERRA SE NÃO EXISTIR
 # ----------------------------------------------------------
-app = Flask(__name__)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("A variável DATABASE_URL não foi encontrada. Verifique seu .env local ou as Environment Variables no Render")
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 # ----------------------------------------------------------
-# 3) FUNÇÃO PARA CRIAR A TABELA AUTOMATICAMENTE
+# 2) CRIA TABELA 'clients' SE NÃO EXISTIR (no Supabase)
 # ----------------------------------------------------------
 def init_db():
-    """
-    Cria a tabela 'clients' caso ela ainda não exista.
-    Estrutura:
-      - mac       : TEXT (PRIMARY KEY)
-      - nome      : TEXT
-      - ip        : TEXT
-      - ativo     : BOOLEAN DEFAULT FALSE
-      - last_seen : TIMESTAMP WITH TIME ZONE
-    """
     conn = get_db_connection()
     with conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS clients (
                     mac TEXT PRIMARY KEY,
                     nome TEXT,
@@ -46,23 +35,19 @@ def init_db():
                     ativo BOOLEAN DEFAULT FALSE,
                     last_seen TIMESTAMP WITH TIME ZONE
                 );
-                """
-            )
+            """)
     conn.close()
 
-# ----------------------------------------------------------
-# 4) CHAMA init_db() IMEDIATAMENTE, GARANTINDO QUE A TABELA EXISTA
-# ----------------------------------------------------------
-# Basta chamar aqui, assim que o módulo for executado no Python.
+# Chama logo que o módulo é importado (incluindo no deploy do Render).
 init_db()
 
 # ----------------------------------------------------------
-# 5) DICIONÁRIO TEMPORÁRIO (clientes vistos mas ainda não salvos)
+# 3) DICIONÁRIO TEMPORÁRIO
 # ----------------------------------------------------------
 temp_clients = {}
 
 # ----------------------------------------------------------
-# 6) ROTA /command: cliente envia MAC e IP, marcamos ativo ou não
+# 4) ROTAS (idem ao que você já tinha)
 # ----------------------------------------------------------
 @app.route("/command")
 def command():
@@ -75,12 +60,10 @@ def command():
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # Verifica se já existe no banco
             cur.execute("SELECT ativo FROM clients WHERE mac = %s", (mac,))
             row = cur.fetchone()
 
             if row:
-                # Se já existe, só atualiza IP e last_seen
                 cur.execute(
                     "UPDATE clients SET ip = %s, last_seen = %s WHERE mac = %s",
                     (ip, now_iso, mac)
@@ -88,7 +71,6 @@ def command():
                 conn.commit()
                 ativo = row[0]
             else:
-                # Se não existe, armazena temporariamente em memória
                 temp_clients[mac] = {
                     "nome": "Sem nome",
                     "ip": ip,
@@ -99,14 +81,9 @@ def command():
 
     return jsonify({"ativo": ativo})
 
-# ----------------------------------------------------------
-# 7) ROTA /: exibe lista de clientes (do banco + temporários)
-# ----------------------------------------------------------
 @app.route("/")
 def index():
     clients = {}
-
-    # Busca todos os clientes persistidos no banco
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT mac, nome, ip, ativo, last_seen FROM clients")
@@ -119,31 +96,20 @@ def index():
                     "last_seen": last_seen
                 }
 
-    # Adiciona ao dicionário aqueles que estão em temp_clients mas não estão no banco
     for mac, data in temp_clients.items():
         if mac not in clients:
             clients[mac] = data
 
     return render_template("index.html", clients=clients, temp_clients=set(temp_clients.keys()))
 
-# ----------------------------------------------------------
-# 8) ROTA /set/<mac>/<status>: altera status de ativo/bloqueado
-# ----------------------------------------------------------
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # status == "ACTIVE" => ativo = True; caso contrário, False
-            cur.execute(
-                "UPDATE clients SET ativo = %s WHERE mac = %s",
-                (status == "ACTIVE", mac)
-            )
+            cur.execute("UPDATE clients SET ativo = %s WHERE mac = %s", (status == "ACTIVE", mac))
             conn.commit()
     return redirect("/")
 
-# ----------------------------------------------------------
-# 9) ROTA /rename/<mac>: atualiza ou insere (se for temporário) com novo nome
-# ----------------------------------------------------------
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
     new_name = request.form.get("nome")
@@ -152,18 +118,12 @@ def rename(mac):
 
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # Verifica se já existe um registro com essa MAC
             cur.execute("SELECT 1 FROM clients WHERE mac = %s", (mac,))
             exists = cur.fetchone()
 
             if exists:
-                # Atualiza o nome no banco
-                cur.execute(
-                    "UPDATE clients SET nome = %s WHERE mac = %s",
-                    (new_name, mac)
-                )
+                cur.execute("UPDATE clients SET nome = %s WHERE mac = %s", (new_name, mac))
             else:
-                # Insere um novo registro usando dados de temp_clients (se existirem)
                 temp_data = temp_clients.get(mac)
                 ip = temp_data["ip"] if temp_data else request.remote_addr
                 last_seen = temp_data["last_seen"] if temp_data else datetime.utcnow().isoformat()
@@ -175,7 +135,6 @@ def rename(mac):
                     """,
                     (mac, new_name, ip, False, last_seen)
                 )
-                # Remove o cliente temporário da memória em RAM
                 if mac in temp_clients:
                     del temp_clients[mac]
 
@@ -183,9 +142,6 @@ def rename(mac):
 
     return redirect("/")
 
-# ----------------------------------------------------------
-# 10) ROTA /delete/<mac>: deleta cliente (banco + temp, se existir)
-# ----------------------------------------------------------
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
     with get_db_connection() as conn:
@@ -193,15 +149,10 @@ def delete(mac):
             cur.execute("DELETE FROM clients WHERE mac = %s", (mac,))
             conn.commit()
 
-    # Também remove do temp_clients se estiver lá
     if mac in temp_clients:
         del temp_clients[mac]
 
     return redirect("/")
 
-# ----------------------------------------------------------
-# 11) RODA O APP
-# ----------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-
