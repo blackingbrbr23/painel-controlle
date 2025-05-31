@@ -5,9 +5,9 @@ from datetime import datetime
 app = Flask(__name__)
 
 # ------------------------------------------------------------
-# 1) STRING DE CONEXÃO COM O SUPABASE, usando a senha fornecida
+# 1) STRING DE CONEXÃO COM O SUPABASE (com password URL-encoded)
 # ------------------------------------------------------------
-DATABASE_URL = "postgresql://postgres:@@W365888aw@db.olmnsorpzkxqojrgljyy.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres:%40%40W365888aw@db.olmnsorpzkxojrgljyy.supabase.co:5432/postgres"
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
