@@ -4,22 +4,25 @@ import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
 
-load_dotenv()  # carrega as variáveis definidas em .env
-
-app = Flask(__name__)
-
 # ----------------------------------------------------------
-# 1) CARREGA A STRING DE CONEXÃO DO SUPABASE
+# 1) CARREGA VARIÁVEIS DE AMBIENTE (.env)
 # ----------------------------------------------------------
+load_dotenv()
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("A variável DATABASE_URL não foi encontrada. Verifique seu .env")
+
+# ----------------------------------------------------------
+# 2) INICIALIZA O FLASK E A FUNÇÃO DE CONEXÃO
+# ----------------------------------------------------------
+app = Flask(__name__)
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 # ----------------------------------------------------------
-# 2) FUNÇÃO PARA CRIAR A TABELA AUTOMATICAMENTE
+# 3) FUNÇÃO PARA CRIAR A TABELA AUTOMATICAMENTE
 # ----------------------------------------------------------
 def init_db():
     """
@@ -47,18 +50,19 @@ def init_db():
             )
     conn.close()
 
-# Antes da primeira requisição, garantimos que a tabela exista
-@app.before_first_request
-def create_tables_if_not_exist():
-    init_db()
+# ----------------------------------------------------------
+# 4) CHAMA init_db() IMEDIATAMENTE, GARANTINDO QUE A TABELA EXISTA
+# ----------------------------------------------------------
+# Basta chamar aqui, assim que o módulo for executado no Python.
+init_db()
 
 # ----------------------------------------------------------
-# 3) DICIONÁRIO TEMPORÁRIO (clientes vistos mas ainda não salvos)
+# 5) DICIONÁRIO TEMPORÁRIO (clientes vistos mas ainda não salvos)
 # ----------------------------------------------------------
 temp_clients = {}
 
 # ----------------------------------------------------------
-# 4) ROTA /command: cliente envia MAC e IP, marcamos ativo ou não
+# 6) ROTA /command: cliente envia MAC e IP, marcamos ativo ou não
 # ----------------------------------------------------------
 @app.route("/command")
 def command():
@@ -96,7 +100,7 @@ def command():
     return jsonify({"ativo": ativo})
 
 # ----------------------------------------------------------
-# 5) ROTA /: exibe lista de clientes (do banco + temporários)
+# 7) ROTA /: exibe lista de clientes (do banco + temporários)
 # ----------------------------------------------------------
 @app.route("/")
 def index():
@@ -123,7 +127,7 @@ def index():
     return render_template("index.html", clients=clients, temp_clients=set(temp_clients.keys()))
 
 # ----------------------------------------------------------
-# 6) ROTA /set/<mac>/<status>: altera status de ativo/bloqueado
+# 8) ROTA /set/<mac>/<status>: altera status de ativo/bloqueado
 # ----------------------------------------------------------
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
@@ -138,7 +142,7 @@ def set_status(mac, status):
     return redirect("/")
 
 # ----------------------------------------------------------
-# 7) ROTA /rename/<mac>: atualiza ou insere (se for temporário) com novo nome
+# 9) ROTA /rename/<mac>: atualiza ou insere (se for temporário) com novo nome
 # ----------------------------------------------------------
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
@@ -180,7 +184,7 @@ def rename(mac):
     return redirect("/")
 
 # ----------------------------------------------------------
-# 8) ROTA /delete/<mac>: deleta cliente (banco + temp, se existir)
+# 10) ROTA /delete/<mac>: deleta cliente (banco + temp, se existir)
 # ----------------------------------------------------------
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
@@ -196,8 +200,8 @@ def delete(mac):
     return redirect("/")
 
 # ----------------------------------------------------------
-# 9) RODA O APP
+# 11) RODA O APP
 # ----------------------------------------------------------
 if __name__ == "__main__":
-    # Antes de iniciar, o @app.before_first_request já terá criado a tabela
     app.run(host="0.0.0.0", port=10000)
+
