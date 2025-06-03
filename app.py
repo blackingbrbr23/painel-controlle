@@ -125,10 +125,18 @@ def index():
 def set_status(mac, status):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE clients SET ativo = %s WHERE mac = %s",
-                (status == "ACTIVE", mac)
-            )
+            if status == "ACTIVE":
+                # Ao ativar manualmente, limpamos também a expiração
+                cur.execute(
+                    "UPDATE clients SET ativo = TRUE, expiration_timestamp = NULL WHERE mac = %s",
+                    (mac,)
+                )
+            else:
+                # Se for BLOCKED, apenas bloqueia (expiração pode continuar registrada ou não)
+                cur.execute(
+                    "UPDATE clients SET ativo = FALSE WHERE mac = %s",
+                    (mac,)
+                )
             conn.commit()
     return redirect("/")
 
@@ -136,7 +144,7 @@ def set_status(mac, status):
 def rename(mac):
     new_name = request.form.get("nome")
     # Captura os campos de expiração vindos do formulário
-    expiration_date = request.form.get("expiration_date")     # ex.: "2025-06-10T15:30"
+    expiration_date = request.form.get("expiration_date")      # ex.: "2025-06-10T15:30"
     expiration_seconds = request.form.get("expiration_seconds") # ex.: "3600" (em segundos)
 
     # Calcula o timestamp de expiração, se houver
