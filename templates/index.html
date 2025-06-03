@@ -1,3 +1,5 @@
+<!-- templates/index.html -->
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -24,7 +26,7 @@
     @keyframes blink-animation {
       50% { opacity: 0; }
     }
-    /* Pequeno ajuste para o modal */
+    /* Ajuste para modal */
     .modal-header, .modal-footer { border: none; }
     .modal-title { font-size: 1.2rem; }
   </style>
@@ -68,11 +70,11 @@
                 <span class="text-success-small">✔️ Cadastrado</span>
               {% endif %}
 
-              <!-- Esses campos ficarão ocultos até que o usuário preencha dentro do modal -->
+              <!-- Campos ocultos para envio ao servidor -->
               <input type="hidden" name="expiration_date" id="expirationDateInput-{{ mac }}">
               <input type="hidden" name="expiration_seconds" id="expirationSecondsInput-{{ mac }}">
 
-              <!-- Botão Salvar (envia o formulário principal) -->
+              <!-- Botão Salvar -->
               <button type="submit" class="btn btn-primary btn-sm">Salvar</button>
             </form>
 
@@ -104,7 +106,7 @@
                     <button type="button"
                             class="btn btn-primary btn-sm"
                             onclick="
-                              // Ao clicar em 'Aplicar', copiamos o valor para os campos ocultos do form principal:
+                              // Copia valores do modal para os campos ocultos do form principal:
                               (function() {
                                 const dateInput = document.getElementById('expirationDate-{{ mac }}').value;
                                 const secondsInput = document.getElementById('expirationSeconds-{{ mac }}').value.trim();
@@ -144,7 +146,10 @@
                 {{ data.expiration_human }}
               </div>
               <div style="margin-top: 4px;">
-                <span class="countdown" data-expiration="{{ data.expiration }}"></span>
+                <!-- Agora cada span tem data-mac, além de data-expiration -->
+                <span class="countdown"
+                      data-expiration="{{ data.expiration }}"
+                      data-mac="{{ mac }}"></span>
               </div>
             {% else %}
               —
@@ -173,11 +178,12 @@
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Script para atualizar o contador de cada linha -->
+  <!-- Script para atualizar o contador e forçar reload ao expirar -->
   <script>
     function updateCountdowns() {
       document.querySelectorAll('.countdown').forEach(function(span) {
         const exp = span.getAttribute('data-expiration');
+        const mac  = span.getAttribute('data-mac');
         if (!exp) {
           span.textContent = "";
           return;
@@ -189,11 +195,23 @@
         const diffMs = expDate - now;
 
         if (diffMs <= 0) {
-          // Já expirou
+          // Já expirou: exibe “Expirado” com piscar
           span.textContent = 'Expirado';
           span.classList.add('blink');
+
+          // Se ainda não recarregamos para este MAC, faz reload
+          // (para que o servidor atualize o status no badge)
+          const key = 'reloaded-' + mac;
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, 'true');
+            // dá um pequeno atraso de 500ms antes de recarregar,
+            // para garantir que o texto “Expirado” apareça ao usuário
+            setTimeout(function() {
+              window.location.reload();
+            }, 500);
+          }
         } else {
-          // Calcula dias, horas e minutos restantes
+          // Ainda não expirou: exibe dias, horas e minutos restantes
           const totalSeconds = Math.floor(diffMs / 1000);
           const days = Math.floor(totalSeconds / 86400);
           const hours = Math.floor((totalSeconds % 86400) / 3600);
@@ -216,7 +234,7 @@
 
     document.addEventListener('DOMContentLoaded', function() {
       updateCountdowns();
-      // Atualiza a cada minuto (60000 ms)
+      // Atualiza a cada minuto (60 000 ms)
       setInterval(updateCountdowns, 60000);
     });
   </script>
