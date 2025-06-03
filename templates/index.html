@@ -1,5 +1,3 @@
-<!-- templates/index.html -->
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -200,12 +198,9 @@
           span.classList.add('blink');
 
           // Se ainda não recarregamos para este MAC, faz reload
-          // (para que o servidor atualize o status no badge)
           const key = 'reloaded-' + mac;
           if (!sessionStorage.getItem(key)) {
             sessionStorage.setItem(key, 'true');
-            // dá um pequeno atraso de 500ms antes de recarregar,
-            // para garantir que o texto “Expirado” apareça ao usuário
             setTimeout(function() {
               window.location.reload();
             }, 500);
