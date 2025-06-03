@@ -1,6 +1,10 @@
+# app.py
+
 from flask import Flask, request, jsonify, render_template, redirect
 import psycopg2
 from datetime import datetime, timedelta
+import threading
+import time
 
 app = Flask(__name__)
 
@@ -68,20 +72,7 @@ def command():
 
 @app.route("/")
 def index():
-    # 1) Bloqueia automaticamente quem já expirou
-    now = datetime.utcnow()
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE clients
-                SET ativo = FALSE
-                WHERE expiration_timestamp IS NOT NULL
-                  AND expiration_timestamp <= %s
-                  AND ativo = TRUE;
-            """, (now,))
-            conn.commit()
-
-    # 2) Busca todos os clientes cadastrados no banco, incluindo o timestamp de expiração
+    # Busca todos os clientes cadastrados no banco, incluindo o timestamp de expiração
     clients = {}
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -107,7 +98,7 @@ def index():
                     "expiration_human": expiration_human
                 }
 
-    # 3) Junta com os temporários que ainda não foram salvos no banco
+    # Junta com os temporários que ainda não foram salvos no banco
     for mac, data in temp_clients.items():
         if mac not in clients:
             clients[mac] = {
@@ -132,13 +123,13 @@ def set_status(mac, status):
                     (mac,)
                 )
             else:
-                # Se for BLOCKED, apenas bloqueia (expiração pode continuar registrada ou não)
+                # Se for BLOCKED, apenas bloqueia
                 cur.execute(
                     "UPDATE clients SET ativo = FALSE WHERE mac = %s",
                     (mac,)
                 )
             conn.commit()
-    return redirect("/")
+    return ("", 204)
 
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
@@ -203,6 +194,31 @@ def delete(mac):
         del temp_clients[mac]
     return redirect("/")
 
+
+# Background thread que roda a cada 60 segundos e bloqueia todos os clientes expirados no banco,
+# sem depender de alguém acessar a rota "/".
+def expiration_worker():
+    while True:
+        now = datetime.utcnow()
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE clients
+                        SET ativo = FALSE
+                        WHERE expiration_timestamp IS NOT NULL
+                          AND expiration_timestamp <= %s
+                          AND ativo = TRUE;
+                    """, (now,))
+                    conn.commit()
+        except Exception:
+            # Ignora erros de conexão momentânea; tenta novamente
+            pass
+        time.sleep(60)  # espera 60 segundos antes de checar de novo
+
 if __name__ == "__main__":
     init_db()
+    # Inicia a thread de expiração em background, como daemon para não bloquear o shutdown
+    t = threading.Thread(target=expiration_worker, daemon=True)
+    t.start()
     app.run(host="0.0.0.0", port=10000)
