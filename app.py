@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, redirect
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 import psycopg2
 from datetime import datetime, timedelta
 import threading
@@ -37,9 +37,7 @@ def command():
     1) Recebe os parâmetros mac e public_ip.
     2) Busca no banco: SELECT ativo, expiration_timestamp.
        - Se não existir, grava em temp_clients e retorna {"ativo": False}.
-       - Se existir:
-         a) Se expiration_timestamp <= agora UTC, força ativo = FALSE no banco.
-         b) Se ainda não expirou, retorna o valor atual de ativo.
+       - Se existir: retorna simplesmente o valor de ativo, sem tentar bloquear aqui.
        Em qualquer caso em que o cliente exista no banco, atualiza ip e last_seen.
     """
     mac = request.args.get("mac")
@@ -52,25 +50,17 @@ def command():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # 1) Busca ativo e expiration_timestamp no banco
+                # 1) Busca ativo e expiration_timestamp no banco (mas NÃO faz mais bloqueio aqui)
                 cur.execute("SELECT ativo, expiration_timestamp FROM clients WHERE mac = %s", (mac,))
                 row = cur.fetchone()
 
                 if row:
                     ativo_db, expiration_ts = row
 
-                    # 2) Verifica se já expirou
-                    if expiration_ts is not None and expiration_ts <= now_utc:
-                        # Marca como bloqueado no banco se ainda estivesse ativo
-                        if ativo_db:
-                            cur.execute(
-                                "UPDATE clients SET ativo = FALSE WHERE mac = %s",
-                                (mac,)
-                            )
-                            conn.commit()
-                        ativo = False
-                    else:
-                        ativo = ativo_db
+                    # NOTA: removemos a checagem direta de expiração aqui.
+                    # O único local que vai bloquear automaticamente continua sendo o expiration_worker.
+
+                    ativo = ativo_db
 
                     # 3) Atualiza IP e last_seen independentemente
                     cur.execute(
@@ -161,7 +151,8 @@ def set_status(mac, status):
                     (mac,)
                 )
             conn.commit()
-    return ("", 204)
+    # Redireciona para a página principal (forçando reload do índice)
+    return redirect(url_for("index"))
 
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
@@ -195,7 +186,7 @@ def rename(mac):
             cur.execute("SELECT 1 FROM clients WHERE mac = %s", (mac,))
             exists = cur.fetchone()
             if exists:
-                # Atualiza nome e expiração
+                # Atualiza nome e expiração (pode ser NULL se o usuário não preencheu nada)
                 cur.execute("""
                     UPDATE clients
                     SET nome = %s,
@@ -259,3 +250,4 @@ if __name__ == "__main__":
     t = threading.Thread(target=expiration_worker, daemon=True)
     t.start()
     app.run(host="0.0.0.0", port=10000)
+
