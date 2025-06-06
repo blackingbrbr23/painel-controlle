@@ -1,5 +1,3 @@
-# app.py
-
 from flask import Flask, request, jsonify, render_template, redirect
 import psycopg2
 from datetime import datetime, timedelta
@@ -24,13 +22,9 @@ def init_db():
                     nome TEXT NOT NULL,
                     ip TEXT,
                     ativo BOOLEAN DEFAULT FALSE,
-                    last_seen TEXT
+                    last_seen TEXT,
+                    expiration_timestamp TIMESTAMP
                 );
-            """)
-            # Adiciona a coluna de expiração, se ainda não exista
-            cur.execute("""
-                ALTER TABLE clients
-                    ADD COLUMN IF NOT EXISTS expiration_timestamp TIMESTAMP;
             """)
             conn.commit()
 
@@ -39,40 +33,76 @@ temp_clients = {}
 
 @app.route("/command")
 def command():
+    """
+    1) Recebe os parâmetros mac e public_ip.
+    2) Busca no banco: SELECT ativo, expiration_timestamp.
+       - Se não existir, grava em temp_clients e retorna {"ativo": False}.
+       - Se existir:
+         a) Se expiration_timestamp <= agora UTC, força ativo = FALSE no banco.
+         b) Se ainda não expirou, retorna o valor atual de ativo.
+       Em qualquer caso em que o cliente exista no banco, atualiza ip e last_seen.
+    """
     mac = request.args.get("mac")
     ip = request.args.get("public_ip")
     if not mac:
         return jsonify({"error": "MAC não fornecido"}), 400
 
-    now_iso = datetime.utcnow().isoformat()
+    now_utc = datetime.utcnow()
 
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT ativo FROM clients WHERE mac = %s", (mac,))
-            row = cur.fetchone()
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # 1) Busca ativo e expiration_timestamp no banco
+                cur.execute("SELECT ativo, expiration_timestamp FROM clients WHERE mac = %s", (mac,))
+                row = cur.fetchone()
 
-            if row:
-                # Cliente já salvo: atualiza IP e last_seen
-                cur.execute(
-                    "UPDATE clients SET ip = %s, last_seen = %s WHERE mac = %s",
-                    (ip, now_iso, mac)
-                )
-                conn.commit()
-                ativo = row[0]
-            else:
-                # Cliente temporário (não salvo ainda)
-                temp_clients[mac] = {
-                    "nome": "Sem nome",
-                    "ip": ip,
-                    "ativo": False,
-                    "last_seen": now_iso
-                }
-                ativo = False
-    return jsonify({"ativo": ativo})
+                if row:
+                    ativo_db, expiration_ts = row
+
+                    # 2) Verifica se já expirou
+                    if expiration_ts is not None and expiration_ts <= now_utc:
+                        # Marca como bloqueado no banco se ainda estivesse ativo
+                        if ativo_db:
+                            cur.execute(
+                                "UPDATE clients SET ativo = FALSE WHERE mac = %s",
+                                (mac,)
+                            )
+                            conn.commit()
+                        ativo = False
+                    else:
+                        ativo = ativo_db
+
+                    # 3) Atualiza IP e last_seen independentemente
+                    cur.execute(
+                        "UPDATE clients SET ip = %s, last_seen = %s WHERE mac = %s",
+                        (ip, now_utc.isoformat(), mac)
+                    )
+                    conn.commit()
+
+                else:
+                    # Cliente não existe ainda no banco → armazena em temporários e retorna ativo = False
+                    temp_clients[mac] = {
+                        "nome": "Sem nome",
+                        "ip": ip,
+                        "ativo": False,
+                        "last_seen": now_utc.isoformat()
+                    }
+                    ativo = False
+
+        return jsonify({"ativo": ativo})
+
+    except Exception as e:
+        # Em caso de qualquer erro de BD, retorna bloqueado para não permitir acesso indevido
+        print(f"Erro no /command: {e}")
+        return jsonify({"ativo": False})
 
 @app.route("/")
 def index():
-    # Busca todos os clientes cadastrados no banco, incluindo o timestamp de expiração
+    """
+    Renderiza a página principal, listando:
+     - Todos os clientes cadastrados no banco (com expiration, se houver)
+     - Todos os temp_clients que ainda não foram salvos
+    """
     clients = {}
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -85,9 +115,8 @@ def index():
                 expiration_iso = None
                 expiration_human = None
                 if expiration_ts:
-                    # string ISO (para o JavaScript interpretar como UTC)
+                    # Gera ISO para o JS e human-readable para exibição
                     expiration_iso = expiration_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
-                    # formato legível para exibir “Bloqueia em: …”
                     expiration_human = expiration_ts.strftime("%Y-%m-%d %H:%M UTC")
                 clients[mac] = {
                     "nome": nome,
@@ -114,16 +143,19 @@ def index():
 
 @app.route("/set/<mac>/<status>", methods=["POST"])
 def set_status(mac, status):
+    """
+    Marca como ACTIVE ou BLOCKED, limpando expiration_timestamp se for ACTIVE.
+    """
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             if status == "ACTIVE":
-                # Ao ativar manualmente, limpamos também a expiração
+                # Ao ativar manualmente, limpa expiração
                 cur.execute(
                     "UPDATE clients SET ativo = TRUE, expiration_timestamp = NULL WHERE mac = %s",
                     (mac,)
                 )
             else:
-                # Se for BLOCKED, apenas bloqueia
+                # Se for BLOCKED, apenas bloqueia sem mexer na expiração
                 cur.execute(
                     "UPDATE clients SET ativo = FALSE WHERE mac = %s",
                     (mac,)
@@ -133,16 +165,17 @@ def set_status(mac, status):
 
 @app.route("/rename/<mac>", methods=["POST"])
 def rename(mac):
+    """
+    Atualiza nome e expiration_timestamp (via data/hora ou via segundos contados a partir do momento).
+    Se cliente não existir ainda no banco, insere novo registro com 'ativo = False'.
+    """
     new_name = request.form.get("nome")
-    # Captura os campos de expiração vindos do formulário
     expiration_date = request.form.get("expiration_date")      # ex.: "2025-06-10T15:30"
-    expiration_seconds = request.form.get("expiration_seconds") # ex.: "3600" (em segundos)
+    expiration_seconds = request.form.get("expiration_seconds") # ex.: "3600"
 
-    # Calcula o timestamp de expiração, se houver
     expiration_ts = None
     if expiration_date:
         try:
-            # datetime.fromisoformat aceita algo como "2025-06-10T15:30"
             expiration_ts = datetime.fromisoformat(expiration_date)
         except ValueError:
             expiration_ts = None
@@ -162,7 +195,7 @@ def rename(mac):
             cur.execute("SELECT 1 FROM clients WHERE mac = %s", (mac,))
             exists = cur.fetchone()
             if exists:
-                # Atualiza nome e expiração, se já existe
+                # Atualiza nome e expiração
                 cur.execute("""
                     UPDATE clients
                     SET nome = %s,
@@ -170,7 +203,7 @@ def rename(mac):
                     WHERE mac = %s
                 """, (new_name, expiration_ts, mac))
             else:
-                # Insere novo cliente no banco
+                # Insere novo cliente com ativo = False
                 temp_data = temp_clients.get(mac)
                 ip = temp_data["ip"] if temp_data else request.remote_addr
                 last_seen = temp_data["last_seen"] if temp_data else datetime.utcnow().isoformat()
@@ -186,6 +219,9 @@ def rename(mac):
 
 @app.route("/delete/<mac>", methods=["POST"])
 def delete(mac):
+    """
+    Exclui o cliente do banco e, se estiver em temp_clients, também remove.
+    """
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM clients WHERE mac = %s", (mac,))
@@ -194,10 +230,11 @@ def delete(mac):
         del temp_clients[mac]
     return redirect("/")
 
-
-# Background thread que roda a cada 60 segundos e bloqueia todos os clientes expirados no banco,
-# sem depender de alguém acessar a rota "/".
 def expiration_worker():
+    """
+    Thread de background que roda a cada 60 segundos e bloqueia todos os clientes
+    cuja expiration_timestamp já tenha passado, definindo ativo = FALSE.
+    """
     while True:
         now = datetime.utcnow()
         try:
@@ -212,13 +249,13 @@ def expiration_worker():
                     """, (now,))
                     conn.commit()
         except Exception:
-            # Ignora erros de conexão momentânea; tenta novamente
+            # Ignora erros temporários de conexão
             pass
-        time.sleep(60)  # espera 60 segundos antes de checar de novo
+        time.sleep(60)
 
 if __name__ == "__main__":
     init_db()
-    # Inicia a thread de expiração em background, como daemon para não bloquear o shutdown
+    # Inicia a thread de expiração em background (daemon para não bloquear o shutdown)
     t = threading.Thread(target=expiration_worker, daemon=True)
     t.start()
     app.run(host="0.0.0.0", port=10000)
