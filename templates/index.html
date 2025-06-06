@@ -63,7 +63,7 @@
                 TEMPO
               </button>
 
-              <!-- Indica visualmente se já está cadastrado (não temporário) -->
+              <!-- Indica se já está cadastrado (não temporário) -->
               {% if mac not in temp_clients %}
                 <span class="text-success-small">✔️ Cadastrado</span>
               {% endif %}
@@ -206,13 +206,8 @@
             fetch(`/set/${mac}/BLOCKED`, {
               method: 'POST'
             }).then(function(response) {
-              // Atualiza apenas o badge de status no DOM, sem recarregar a página:
-              const badge = document.getElementById(`status-badge-${mac}`);
-              if (badge) {
-                badge.classList.remove('bg-success');
-                badge.classList.add('bg-danger');
-                badge.textContent = 'Bloqueado';
-              }
+              // Recarrega a página (para garantir que a linha inteira se atualize):
+              window.location.reload();
             }).catch(function(err) {
               console.error('Erro ao bloquear via AJAX para', mac, err);
             });
@@ -247,3 +242,4 @@
   </script>
 </body>
 </html>
+
