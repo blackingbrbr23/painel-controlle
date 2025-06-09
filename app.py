@@ -6,13 +6,12 @@ from functools import wraps
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
-app.secret_key = 'SUBSTITUA_POR_UMA_CHAVE_SECRETA_SEGURA'  # gere algo forte: os.urandom(24)
+app.secret_key = 'SUBSTITUA_POR_UMA_CHAVE_SECRETA_SEGURA'  # gere algo forte, ex: os.urandom(24)
 DATABASE_URL = "postgresql://postgres.olmnsorpzkxqojrgljyy:%40%40W365888aw@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"
 
 # — Usuário único de admin —
 ADMIN_USERNAME = 'admin'
-# Gere a hash com generate_password_hash('sua_senha_forte')
-ADMIN_PASSWORD_HASH = generate_password_hash('sua_senha_forte')
+ADMIN_PASSWORD_HASH = generate_password_hash('sua_senha_forte')  # ajuste aqui
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
@@ -32,10 +31,8 @@ def init_db():
             """)
             conn.commit()
 
-# Clientes que pingaram mas ainda não salvaram
 temp_clients = {}
 
-# — Autenticação —
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -60,7 +57,6 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# — Rotas protegidas —
 @app.route('/command')
 @login_required
 def command():
@@ -68,10 +64,8 @@ def command():
     ip  = request.args.get("public_ip")
     if not mac:
         return jsonify({"error":"MAC não fornecido"}),400
-
     now_utc = datetime.utcnow()
     ativo = False
-
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -83,14 +77,10 @@ def command():
                     cur.execute("UPDATE clients SET ip=%s, last_seen=%s WHERE mac=%s",
                                 (ip, now_utc.isoformat(), mac))
                 else:
-                    temp_clients[mac] = {
-                        "nome":"Sem nome", "ip":ip,
-                        "ativo":False, "last_seen":now_utc.isoformat()
-                    }
+                    temp_clients[mac] = {"nome":"Sem nome","ip":ip,"ativo":False,"last_seen":now_utc.isoformat()}
                 conn.commit()
     except Exception as e:
         print(f"Erro /command: {e}")
-
     return jsonify({"ativo": ativo})
 
 @app.route('/')
@@ -99,28 +89,16 @@ def index():
     clients = {}
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT mac, nome, ip, ativo, last_seen, expiration_timestamp
-                  FROM clients
-            """)
+            cur.execute("SELECT mac, nome, ip, ativo, last_seen, expiration_timestamp FROM clients")
             for mac,nome,ip,ativo,last_seen,exp_ts in cur.fetchall():
                 iso = exp_ts.strftime("%Y-%m-%dT%H:%M:%SZ") if exp_ts else None
                 human = exp_ts.strftime("%Y-%m-%d %H:%M UTC") if exp_ts else None
-                clients[mac] = {
-                    "nome": nome, "ip": ip, "ativo": ativo,
-                    "expiration": iso, "expiration_human": human
-                }
-    # adiciona temporários
+                clients[mac] = {"nome":nome,"ip":ip,"ativo":ativo,"expiration":iso,"expiration_human":human}
     for mac,data in temp_clients.items():
         if mac not in clients:
-            clients[mac] = {
-                "nome": data["nome"], "ip": data["ip"],
-                "ativo": data["ativo"],
-                "expiration": None, "expiration_human": None
-            }
-    return render_template('index.html',
-                           clients=clients,
-                           temp_clients=set(temp_clients.keys()))
+            clients[mac] = {"nome":data["nome"],"ip":data["ip"],"ativo":data["ativo"],
+                            "expiration":None,"expiration_human":None}
+    return render_template('index.html', clients=clients, temp_clients=set(temp_clients.keys()))
 
 @app.route('/set/<mac>/<status>', methods=['POST'])
 @login_required
@@ -155,11 +133,8 @@ def rename(mac):
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM clients WHERE mac=%s",(mac,))
             if cur.fetchone():
-                cur.execute("""
-                  UPDATE clients
-                     SET nome=%s, expiration_timestamp=%s
-                   WHERE mac=%s
-                """, (new_name, exp_ts, mac))
+                cur.execute("UPDATE clients SET nome=%s, expiration_timestamp=%s WHERE mac=%s",
+                            (new_name, exp_ts, mac))
             else:
                 temp = temp_clients.get(mac,{})
                 ip = temp.get("ip") or request.remote_addr
