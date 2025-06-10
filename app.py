@@ -11,7 +11,7 @@ DATABASE_URL = "postgresql://postgres.olmnsorpzkxqojrgljyy:%40%40W365888aw@aws-0
 
 # — Usuário único de admin —
 ADMIN_USERNAME = 'admin'
-ADMIN_PASSWORD_HASH = generate_password_hash('sua_senha_forte')  # ajuste aqui
+ADMIN_PASSWORD_HASH = generate_password_hash('@@@blackingbrbr@@')  # ajuste aqui
 
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
